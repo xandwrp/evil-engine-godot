@@ -12,8 +12,10 @@
     <Configurations>Debug;ExportDebug;ExportRelease</Configurations>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
 
+    <GodotProjectDir Condition=" '$(GodotProjectDir)' == '' ">$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'project.godot'))</GodotProjectDir>
     <GodotProjectDir Condition=" '$(GodotProjectDir)' == '' ">$(MSBuildProjectDirectory)</GodotProjectDir>
     <GodotProjectDir>$([MSBuild]::EnsureTrailingSlash('$(GodotProjectDir)'))</GodotProjectDir>
+    <GodotProjectLibrary Condition=" '$(GodotProjectLibrary)' == '' and '$([MSBuild]::NormalizeDirectory($(GodotProjectDir)))' != '$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory)))' ">true</GodotProjectLibrary>
     <GodotProjectDirBase64 Condition=" $([MSBuild]::VersionGreaterThanOrEquals($(MSBuildAssemblyVersion), '17.3')) ">$([MSBuild]::ConvertToBase64('$(GodotProjectDir)'))</GodotProjectDirBase64>
 
     <!-- Custom output paths for Godot projects. In brief, 'bin\' and 'obj\' are moved to '$(GodotProjectDir)\.godot\mono\temp\'. -->
@@ -23,11 +25,18 @@
     Use custom IntermediateOutputPath and BaseIntermediateOutputPath only if it wasn't already set.
     Otherwise the old values may have already been changed by MSBuild which can cause problems with NuGet.
     -->
+    <IntermediateOutputPath Condition=" '$(IntermediateOutputPath)' == '' and '$(GodotProjectLibrary)' == 'true' ">$(GodotProjectDir).godot\mono\temp\obj\$(MSBuildProjectName)\$(Configuration)\</IntermediateOutputPath>
+    <BaseIntermediateOutputPath Condition=" '$(BaseIntermediateOutputPath)' == '' and '$(GodotProjectLibrary)' == 'true' ">$(GodotProjectDir).godot\mono\temp\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <IntermediateOutputPath Condition=" '$(IntermediateOutputPath)' == '' ">$(GodotProjectDir).godot\mono\temp\obj\$(Configuration)\</IntermediateOutputPath>
     <BaseIntermediateOutputPath Condition=" '$(BaseIntermediateOutputPath)' == '' ">$(GodotProjectDir).godot\mono\temp\obj\</BaseIntermediateOutputPath>
 
     <!-- Do not append the target framework name to the output path. -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(GodotProjectLibrary)' == 'true' ">
+    <ProduceReferenceAssembly Condition=" '$(ProduceReferenceAssembly)' == '' ">false</ProduceReferenceAssembly>
+    <GodotDisabledSourceGenerators>GodotPluginsInitializer;$(GodotDisabledSourceGenerators)</GodotDisabledSourceGenerators>
   </PropertyGroup>
 
   <Target Condition=" $([MSBuild]::VersionLessThan($(MSBuildAssemblyVersion), '17.3')) " Name="GodotProjectDir" BeforeTargets="Build">

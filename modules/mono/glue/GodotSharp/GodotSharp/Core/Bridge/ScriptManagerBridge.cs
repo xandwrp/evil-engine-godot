@@ -301,6 +301,63 @@ namespace Godot.Bridge
         // ReSharper disable once UnusedMember.Local
         public static void LookupScriptsInAssembly(Assembly assembly)
         {
+            var loadContext = AssemblyLoadContext.GetLoadContext(assembly) ?? AssemblyLoadContext.Default;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<Assembly>();
+            bool foundScripts = false;
+
+            visited.Add(assembly.GetName().Name ?? string.Empty);
+            pending.Push(assembly);
+
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+
+                foundScripts |= LookupScriptsInSingleAssembly(current);
+
+                var referencesAttr = current.GetCustomAttributes(inherit: false)
+                    .OfType<AssemblyHasScriptReferencesAttribute>()
+                    .FirstOrDefault();
+
+                if (referencesAttr == null)
+                    continue;
+
+                foreach (string name in referencesAttr.AssemblyNames)
+                {
+                    if (!visited.Add(name))
+                        continue;
+
+                    try
+                    {
+                        pending.Push(loadContext.LoadFromAssemblyName(new AssemblyName(name)));
+                    }
+                    catch (System.IO.FileNotFoundException)
+                    {
+                    }
+                }
+            }
+
+            if (!foundScripts)
+                return;
+
+            // This method may be called before initialization.
+            if (NativeFuncs.godotsharp_dotnet_module_is_initialized().ToBool() && Engine.IsEditorHint())
+            {
+                if (_pathTypeBiMap.Paths.Count > 0)
+                {
+                    Callable.From(() =>
+                    {
+                        string[] scriptPaths = _pathTypeBiMap.Paths.ToArray();
+                        using godot_packed_string_array scriptPathsNative =
+                            Marshaling.ConvertSystemArrayToNativePackedStringArray(scriptPaths);
+                        NativeFuncs.godotsharp_internal_editor_file_system_update_files(scriptPathsNative);
+                    }).CallDeferred();
+                }
+            }
+        }
+
+        private static bool LookupScriptsInSingleAssembly(Assembly assembly)
+        {
             static void LookupScriptForClass(Type type)
             {
                 var scriptPathAttr = type.GetCustomAttributes(inherit: false)
@@ -323,7 +380,7 @@ namespace Godot.Bridge
                 .FirstOrDefault();
 
             if (assemblyHasScriptsAttr == null)
-                return;
+                return false;
 
             if (assemblyHasScriptsAttr.RequiresLookup)
             {
@@ -359,20 +416,7 @@ namespace Godot.Bridge
                 }
             }
 
-            // This method may be called before initialization.
-            if (NativeFuncs.godotsharp_dotnet_module_is_initialized().ToBool() && Engine.IsEditorHint())
-            {
-                if (_pathTypeBiMap.Paths.Count > 0)
-                {
-                    Callable.From(() =>
-                    {
-                        string[] scriptPaths = _pathTypeBiMap.Paths.ToArray();
-                        using godot_packed_string_array scriptPathsNative =
-                            Marshaling.ConvertSystemArrayToNativePackedStringArray(scriptPaths);
-                        NativeFuncs.godotsharp_internal_editor_file_system_update_files(scriptPathsNative);
-                    }).CallDeferred();
-                }
-            }
+            return true;
         }
 
         [UnmanagedCallersOnly]

@@ -65,10 +65,36 @@ namespace Godot.SourceGenerators
                     classDeclarations: godotClass.Value);
             }
 
+            AddScriptReferencesAssemblyAttr(context);
+
             if (godotClasses.Count <= 0)
                 return;
 
             AddScriptTypesAssemblyAttr(context, godotClasses);
+        }
+
+        private static void AddScriptReferencesAssemblyAttr(GeneratorExecutionContext context)
+        {
+            var assemblyNames = context.Compilation.SourceModule.ReferencedAssemblySymbols
+                .Where(assembly => assembly.GetAttributes().Any(attribute =>
+                    attribute.AttributeClass?.FullQualifiedNameOmitGlobal() == GodotClasses.AssemblyHasScriptsAttr))
+                .Select(assembly => assembly.Identity.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+
+            if (assemblyNames.Count == 0)
+                return;
+
+            var sourceBuilder = new StringBuilder();
+
+            sourceBuilder.Append("[assembly:");
+            sourceBuilder.Append(GodotClasses.AssemblyHasScriptReferencesAttr);
+            sourceBuilder.Append("(new string[] {");
+            sourceBuilder.Append(string.Join(", ", assemblyNames.Select(name => "\"" + name + "\"")));
+            sourceBuilder.Append("})]\n");
+
+            context.AddSource("AssemblyScriptReferences.generated",
+                SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
         }
 
         private static void VisitGodotScriptClass(
