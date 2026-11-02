@@ -184,6 +184,7 @@ void CSharpLanguage::finalize() {
 #endif // DEBUG_ENABLED
 
 	memdelete(managed_callable_middleman);
+	managed_callable_middleman = nullptr;
 
 	finalizing = false;
 	finalized = true;

@@ -31,6 +31,7 @@
 #include "managed_callable.h"
 
 #include "csharp_script.h"
+#include "mono_gd/gd_mono.h"
 #include "mono_gd/gd_mono_cache.h"
 
 #ifdef GD_MONO_HOT_RELOAD
@@ -38,6 +39,11 @@ SelfList<ManagedCallable>::List ManagedCallable::instances;
 RBMap<ManagedCallable *, Array> ManagedCallable::instances_pending_reload;
 Mutex ManagedCallable::instances_mutex;
 #endif
+
+static bool _runtime_alive() {
+	GDMono *mono = GDMono::get_singleton();
+	return mono && mono->is_runtime_initialized() && GDMonoCache::godot_api_cache_updated;
+}
 
 bool ManagedCallable::compare_equal(const CallableCustom *p_a, const CallableCustom *p_b) {
 	const ManagedCallable *a = static_cast<const ManagedCallable *>(p_a);
@@ -79,6 +85,9 @@ CallableCustom::CompareLessFunc ManagedCallable::get_compare_less_func() const {
 }
 
 ObjectID ManagedCallable::get_object() const {
+	if (!_runtime_alive()) {
+		return ObjectID();
+	}
 	if (object_id != ObjectID()) {
 		return object_id;
 	}
@@ -94,6 +103,10 @@ void ManagedCallable::call(const Variant **p_arguments, int p_argcount, Variant 
 	r_return_value = Variant();
 
 	ERR_FAIL_NULL(delegate_handle.value);
+	if (!_runtime_alive()) {
+		r_call_error.error = Callable::CallError::CALL_ERROR_INSTANCE_IS_NULL;
+		return;
+	}
 
 	GDMonoCache::managed_callbacks.DelegateUtils_InvokeWithVariantArgs(
 			delegate_handle, trampoline, p_arguments, p_argcount, &r_return_value);
@@ -102,10 +115,10 @@ void ManagedCallable::call(const Variant **p_arguments, int p_argcount, Variant 
 }
 
 void ManagedCallable::release_delegate_handle() {
-	if (delegate_handle.value) {
+	if (delegate_handle.value && _runtime_alive()) {
 		GDMonoCache::managed_callbacks.GCHandleBridge_FreeGCHandle(delegate_handle);
-		delegate_handle = { nullptr };
 	}
+	delegate_handle = { nullptr };
 }
 
 // Why you do this clang-format...
