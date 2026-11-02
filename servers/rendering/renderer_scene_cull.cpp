@@ -178,6 +178,34 @@ void RendererSceneCull::camera_set_use_vertical_aspect(RID p_camera, bool p_enab
 	camera->vaspect = p_enable;
 }
 
+void RendererSceneCull::camera_set_oblique_plane(RID p_camera, const Plane &p_plane) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	camera->oblique = p_plane;
+}
+
+static void _camera_apply_oblique(Projection &r_projection, const Transform3D &p_transform, const Plane &p_plane) {
+	if (p_plane.normal == Vector3() || r_projection.is_orthogonal()) {
+		return;
+	}
+	Plane view_plane = p_transform.affine_inverse().xform(p_plane);
+	view_plane.normalize();
+	Vector4 clip(view_plane.normal.x, view_plane.normal.y, view_plane.normal.z, -view_plane.d);
+	if (clip.w >= 0) {
+		return;
+	}
+	Vector4 corner(
+			(SIGN(clip.x) + r_projection.columns[2][0]) / r_projection.columns[0][0],
+			(SIGN(clip.y) + r_projection.columns[2][1]) / r_projection.columns[1][1],
+			-1.0,
+			(1.0 + r_projection.columns[2][2]) / r_projection.columns[3][2]);
+	Vector4 scaled = clip * (2.0 / clip.dot(corner));
+	r_projection.columns[0][2] = scaled.x;
+	r_projection.columns[1][2] = scaled.y;
+	r_projection.columns[2][2] = scaled.z + 1.0;
+	r_projection.columns[3][2] = scaled.w;
+}
+
 bool RendererSceneCull::is_camera(RID p_camera) const {
 	return camera_owner.owns(p_camera);
 }
@@ -2785,6 +2813,10 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 		} break;
 		case Camera::XR:
 			break;
+	}
+
+	if (camera->type != Camera::XR && camera->projections.size() == 1) {
+		_camera_apply_oblique(camera->projections[0], transform, camera->oblique);
 	}
 
 	for (const Projection &projection : camera->projections) {

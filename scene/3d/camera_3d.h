@@ -74,6 +74,7 @@ private:
 	real_t v_offset = 0.0;
 	real_t h_offset = 0.0;
 	KeepAspect keep_aspect = KEEP_HEIGHT;
+	Plane oblique_plane;
 
 	RID camera;
 	RID scenario_id;
@@ -195,6 +196,9 @@ public:
 
 	void set_keep_aspect_mode(KeepAspect p_aspect);
 	KeepAspect get_keep_aspect_mode() const;
+
+	void set_oblique_plane(const Plane &p_plane);
+	Plane get_oblique_plane() const;
 
 	void set_v_offset(real_t p_offset);
 	real_t get_v_offset() const;

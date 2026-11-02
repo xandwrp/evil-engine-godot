@@ -90,6 +90,7 @@ public:
 		RID compositor;
 
 		Transform3D transform; // Our main camera transform
+		Plane oblique;
 		LocalVector<Transform3D> offsets; // camera offsets for each view
 		LocalVector<Projection> projections; // projection matrix for each view
 
@@ -120,6 +121,7 @@ public:
 	virtual void camera_set_camera_attributes(RID p_camera, RID p_attributes);
 	virtual void camera_set_compositor(RID p_camera, RID p_compositor);
 	virtual void camera_set_use_vertical_aspect(RID p_camera, bool p_enable);
+	virtual void camera_set_oblique_plane(RID p_camera, const Plane &p_plane);
 	virtual bool is_camera(RID p_camera) const;
 #ifndef XR_DISABLED
 	virtual bool is_xr_camera(RID p_camera) const;

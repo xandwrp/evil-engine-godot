@@ -162,6 +162,14 @@
 				Sets camera to use frustum projection. This mode allows adjusting the [param offset] argument to create "tilted frustum" effects.
 			</description>
 		</method>
+		<method name="camera_set_oblique_plane">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="plane" type="Plane" />
+			<description>
+				Tilts the camera's near plane onto [param plane], in world space, so only what lies in front of it along its normal is drawn and culled, as planar reflections and portals need. A plane with a zero normal turns it off. It's ignored for orthogonal and XR cameras and while the camera is in front of the plane. See [member Camera3D.oblique_plane].
+			</description>
+		</method>
 		<method name="camera_set_orthogonal">
 			<return type="void" />
 			<param index="0" name="camera" type="RID" />
