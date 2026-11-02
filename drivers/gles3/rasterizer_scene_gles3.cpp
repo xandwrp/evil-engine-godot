@@ -1320,9 +1320,9 @@ void RasterizerSceneGLES3::_fill_render_list(RenderListType p_render_list, const
 	Plane near_plane;
 	if (p_render_data->cam_orthogonal) {
 		near_plane = Plane(-p_render_data->cam_transform.basis.get_column(Vector3::AXIS_Z), p_render_data->cam_transform.origin);
-		near_plane.d += p_render_data->cam_projection.get_z_near();
+		near_plane.d += p_render_data->cam_frustum.get_z_near();
 	}
-	float z_max = p_render_data->cam_projection.get_z_far() - p_render_data->cam_projection.get_z_near();
+	float z_max = p_render_data->cam_frustum.get_z_far() - p_render_data->cam_frustum.get_z_near();
 
 	RenderList *rl = &render_list[p_render_list];
 
@@ -2367,6 +2367,7 @@ void RasterizerSceneGLES3::_render_shadow_pass(RID p_light, RID p_shadow_atlas, 
 
 	RenderDataGLES3 render_data;
 	render_data.cam_projection = light_projection;
+	render_data.cam_frustum = light_projection;
 	render_data.cam_transform = light_transform;
 	render_data.inv_cam_transform = light_transform.affine_inverse();
 	render_data.z_far = zfar; // Only used by OmniLights.
@@ -2484,6 +2485,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		render_data.cam_transform = p_camera_data->main_transform;
 		render_data.inv_cam_transform = render_data.cam_transform.affine_inverse();
 		render_data.cam_projection = p_camera_data->main_projection;
+		render_data.cam_frustum = p_camera_data->main_frustum;
 		render_data.cam_orthogonal = p_camera_data->is_orthogonal;
 		render_data.camera_visible_layers = p_camera_data->visible_layers;
 		render_data.main_cam_transform = p_camera_data->main_transform;
@@ -2494,8 +2496,8 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 			render_data.view_projection[v] = p_camera_data->view_projection[v];
 		}
 
-		render_data.z_near = p_camera_data->main_projection.get_z_near();
-		render_data.z_far = p_camera_data->main_projection.get_z_far();
+		render_data.z_near = p_camera_data->main_frustum.get_z_near();
+		render_data.z_far = p_camera_data->main_frustum.get_z_far();
 
 		render_data.instances = &p_instances;
 		render_data.lights = &p_lights;
@@ -4189,6 +4191,7 @@ void RasterizerSceneGLES3::render_particle_collider_heightfield(RID p_collider, 
 	RenderDataGLES3 render_data;
 
 	render_data.cam_projection = cm;
+	render_data.cam_frustum = cm;
 	render_data.cam_transform = cam_xform;
 	render_data.view_projection[0] = cm;
 	render_data.inv_cam_transform = render_data.cam_transform.affine_inverse();

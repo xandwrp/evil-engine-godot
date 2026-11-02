@@ -107,6 +107,7 @@ struct RenderDataGLES3 {
 	Transform3D cam_transform;
 	Transform3D inv_cam_transform;
 	Projection cam_projection;
+	Projection cam_frustum;
 	bool cam_orthogonal = false;
 	uint32_t camera_visible_layers = 0xFFFFFFFF;
 

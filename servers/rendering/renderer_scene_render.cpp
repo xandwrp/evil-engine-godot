@@ -42,6 +42,8 @@ void RendererSceneRender::CameraData::set_camera(const Transform3D p_transform, 
 
 	main_transform = p_transform;
 	main_projection = p_projection;
+	main_frustum = p_projection;
+	is_oblique = false;
 
 	visible_layers = p_visible_layers;
 	view_offset[0] = Transform3D();
@@ -61,6 +63,8 @@ void RendererSceneRender::CameraData::set_multiview_camera(const Transform3D &p_
 
 	main_transform = p_transform;
 	main_projection = Projection::create_combined_projection(p_transform, p_projections[0], p_offsets[0], p_projections[1], p_offsets[1]);
+	main_frustum = main_projection;
+	is_oblique = false;
 
 	for (uint32_t v = 0; v < view_count; v++) {
 		view_offset[v] = p_offsets[v];

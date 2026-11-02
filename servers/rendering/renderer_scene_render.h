@@ -312,6 +312,8 @@ public:
 		// Main/center projection
 		Transform3D main_transform;
 		Projection main_projection;
+		Projection main_frustum;
+		bool is_oblique = false;
 
 		Transform3D view_offset[RendererSceneRender::MAX_RENDER_VIEWS];
 		Projection view_projection[RendererSceneRender::MAX_RENDER_VIEWS];

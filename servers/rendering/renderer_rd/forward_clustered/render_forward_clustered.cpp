@@ -953,8 +953,8 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 	uint32_t lightmap_captures_used = 0;
 
 	Plane near_plane = Plane(-p_render_data->scene_data->cam_transform.basis.get_column(Vector3::AXIS_Z), p_render_data->scene_data->cam_transform.origin);
-	near_plane.d += p_render_data->scene_data->cam_projection.get_z_near();
-	float z_max = p_render_data->scene_data->cam_projection.get_z_far() - p_render_data->scene_data->cam_projection.get_z_near();
+	near_plane.d += p_render_data->scene_data->cam_frustum.get_z_near();
+	float z_max = p_render_data->scene_data->cam_frustum.get_z_far() - p_render_data->scene_data->cam_frustum.get_z_near();
 
 	RenderList *rl = &render_list[p_render_list];
 	_update_dirty_geometry_instances();
@@ -1727,7 +1727,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 		// This only works as we don't filter our cluster by depth buffer.
 		// If we ever make this optimization we should make it optional and only use it in mono.
 		// What we win by filtering out a few lights, we loose by having to do the work double for stereo.
-		current_cluster_builder->begin(p_render_data->scene_data->cam_transform, p_render_data->scene_data->cam_projection, !p_render_data->reflection_probe.is_valid());
+		current_cluster_builder->begin(p_render_data->scene_data->cam_transform, p_render_data->scene_data->cam_frustum, !p_render_data->reflection_probe.is_valid());
 	}
 
 	bool using_shadows = true;
@@ -2913,6 +2913,7 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 	RenderSceneDataRD scene_data;
 	scene_data.flip_y = !p_flip_y; // Q: Why is this inverted? Do we assume flip in shadow logic?
 	scene_data.cam_projection = p_projection;
+	scene_data.cam_frustum = p_projection;
 	scene_data.cam_transform = p_transform;
 	scene_data.view_projection[0] = p_projection;
 	scene_data.z_far = p_zfar;
@@ -3018,6 +3019,7 @@ void RenderForwardClustered::_render_particle_collider_heightfield(RID p_fb, con
 	RenderSceneDataRD scene_data;
 	scene_data.flip_y = true;
 	scene_data.cam_projection = p_cam_projection;
+	scene_data.cam_frustum = p_cam_projection;
 	scene_data.cam_transform = p_cam_transform;
 	scene_data.view_projection[0] = p_cam_projection;
 	scene_data.z_near = 0.0;
@@ -3065,6 +3067,7 @@ void RenderForwardClustered::_render_material(const Transform3D &p_cam_transform
 
 	RenderSceneDataRD scene_data;
 	scene_data.cam_projection = p_cam_projection;
+	scene_data.cam_frustum = p_cam_projection;
 	scene_data.cam_transform = p_cam_transform;
 	scene_data.view_projection[0] = p_cam_projection;
 	scene_data.dual_paraboloid_side = 0;

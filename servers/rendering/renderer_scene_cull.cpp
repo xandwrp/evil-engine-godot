@@ -184,15 +184,15 @@ void RendererSceneCull::camera_set_oblique_plane(RID p_camera, const Plane &p_pl
 	camera->oblique = p_plane;
 }
 
-static void _camera_apply_oblique(Projection &r_projection, const Transform3D &p_transform, const Plane &p_plane) {
+static bool _camera_apply_oblique(Projection &r_projection, const Transform3D &p_transform, const Plane &p_plane) {
 	if (p_plane.normal == Vector3() || r_projection.is_orthogonal()) {
-		return;
+		return false;
 	}
 	Plane view_plane = p_transform.affine_inverse().xform(p_plane);
 	view_plane.normalize();
 	Vector4 clip(view_plane.normal.x, view_plane.normal.y, view_plane.normal.z, -view_plane.d);
 	if (clip.w >= 0) {
-		return;
+		return false;
 	}
 	Vector4 corner(
 			(SIGN(clip.x) + r_projection.columns[2][0]) / r_projection.columns[0][0],
@@ -204,6 +204,7 @@ static void _camera_apply_oblique(Projection &r_projection, const Transform3D &p
 	r_projection.columns[1][2] = scaled.y;
 	r_projection.columns[2][2] = scaled.z + 1.0;
 	r_projection.columns[3][2] = scaled.w;
+	return true;
 }
 
 bool RendererSceneCull::is_camera(RID p_camera) const {
@@ -2815,8 +2816,11 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 			break;
 	}
 
+	Projection frustum;
+	bool oblique = false;
 	if (camera->type != Camera::XR && camera->projections.size() == 1) {
-		_camera_apply_oblique(camera->projections[0], transform, camera->oblique);
+		frustum = camera->projections[0];
+		oblique = _camera_apply_oblique(camera->projections[0], transform, camera->oblique);
 	}
 
 	for (const Projection &projection : camera->projections) {
@@ -2825,6 +2829,10 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 
 	if (camera->projections.size() == 1) {
 		camera_data.set_camera(transform * camera->offsets[0], camera->projections[0], is_orthogonal, vaspect, jitter, taa_frame_count, camera->visible_layers);
+		if (oblique) {
+			camera_data.main_frustum = frustum;
+			camera_data.is_oblique = true;
+		}
 	} else if (camera->projections.size() == 2) {
 		camera_data.set_multiview_camera(transform, camera->offsets, camera->projections, is_orthogonal, vaspect, camera->visible_layers);
 	} else {
@@ -2837,7 +2845,9 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 	RENDER_TIMESTAMP("Update Occlusion Buffer")
 
 	// For now just cull on the first camera
-	RendererSceneOcclusionCull::get_singleton()->buffer_update(p_viewport, camera_data.main_transform, camera_data.main_projection, camera_data.is_orthogonal);
+	if (!camera_data.is_oblique) {
+		RendererSceneOcclusionCull::get_singleton()->buffer_update(p_viewport, camera_data.main_transform, camera_data.main_projection, camera_data.is_orthogonal);
+	}
 
 	_render_scene(&camera_data, p_render_buffers, environment, camera->attributes, compositor, camera->visible_layers, p_scenario, p_viewport, p_shadow_atlas, RID(), -1, p_screen_mesh_lod_threshold, p_window_output_max_value, true, r_render_info);
 #endif
@@ -3358,7 +3368,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 	Instance *render_reflection_probe = instance_owner.get_or_null(p_reflection_probe); //if null, not rendering to it
 
 	// Prepare the light - camera volume culling system.
-	light_culler->prepare_camera(p_camera_data->main_transform, p_camera_data->main_projection);
+	light_culler->prepare_camera(p_camera_data->main_transform, p_camera_data->main_frustum);
 
 	Scenario *scenario = scenario_owner.get_or_null(p_scenario);
 	Vector3 camera_position = p_camera_data->main_transform.origin;
@@ -3444,7 +3454,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		RSG::light_storage->set_directional_shadow_count(lights_with_shadow.size());
 
 		for (int i = 0; i < lights_with_shadow.size(); i++) {
-			_light_instance_setup_directional_shadow(i, lights_with_shadow[i], p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect);
+			_light_instance_setup_directional_shadow(i, lights_with_shadow[i], p_camera_data->main_transform, p_camera_data->main_frustum, p_camera_data->is_orthogonal, p_camera_data->vaspect);
 		}
 	}
 
@@ -3488,7 +3498,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		cull_data.cam_transform = p_camera_data->main_transform;
 		cull_data.visible_layers = p_visible_layers;
 		cull_data.render_reflection_probe = render_reflection_probe;
-		cull_data.occlusion_buffer = RendererSceneOcclusionCull::get_singleton()->buffer_get_ptr(p_viewport);
+		cull_data.occlusion_buffer = p_camera_data->is_oblique ? nullptr : RendererSceneOcclusionCull::get_singleton()->buffer_get_ptr(p_viewport);
 		cull_data.camera_matrix = &p_camera_data->main_projection;
 		cull_data.visibility_viewport_mask = scenario->viewport_visibility_masks.has(p_viewport) ? scenario->viewport_visibility_masks[p_viewport] : 0;
 #ifdef DEBUG_CULL_TIME
@@ -3571,11 +3581,11 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			{ //compute coverage
 
 				Transform3D cam_xf = p_camera_data->main_transform;
-				float zn = p_camera_data->main_projection.get_z_near();
+				float zn = p_camera_data->main_frustum.get_z_near();
 				Plane p(-cam_xf.basis.get_column(2), cam_xf.origin + cam_xf.basis.get_column(2) * -zn); //camera near plane
 
 				// near plane half width and height
-				Vector2 vp_half_extents = p_camera_data->main_projection.get_viewport_half_extents();
+				Vector2 vp_half_extents = p_camera_data->main_frustum.get_viewport_half_extents();
 
 				switch (RSG::light_storage->light_get_type(ins->base)) {
 					case RSE::LIGHT_OMNI: {
