@@ -305,6 +305,7 @@ void RenderForwardClustered::update() {
 	RendererSceneRenderRD::update();
 	_update_global_pipeline_data_requirements_from_project();
 	_update_global_pipeline_data_requirements_from_light_storage();
+	_update_dirty_geometry_instances();
 }
 
 /// RENDERING ///
