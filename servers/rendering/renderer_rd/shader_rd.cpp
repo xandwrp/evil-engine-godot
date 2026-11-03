@@ -38,6 +38,7 @@
 #include "core/os/os.h"
 #include "core/string/string_builder.h"
 #include "core/version.h"
+#include "servers/rendering/rendering_server_waits.h"
 #include "servers/rendering/shader_include_db.h"
 
 #define ENABLE_SHADER_CACHE 1
@@ -414,6 +415,7 @@ Vector<String> ShaderRD::_build_variant_stage_sources(uint32_t p_variant, Compil
 }
 
 void ShaderRD::_compile_variant(uint32_t p_variant, CompileData p_data) {
+	RenderingServerWaits::ShaderCompiling compiling;
 	uint32_t variant = group_to_variant_map[p_data.group][p_variant];
 	if (!variants_enabled[variant]) {
 		return; // Variant is disabled, return.
@@ -738,6 +740,7 @@ void ShaderRD::_compile_version_start(Version *p_version, int p_group) {
 	compile_data.version = p_version;
 	compile_data.group = p_group;
 
+	RenderingServerWaits::shader_compilations_queued(group_to_variant_map[p_group].size());
 	WorkerThreadPool::GroupID group_task = WorkerThreadPool::get_singleton()->add_template_group_task(this, &ShaderRD::_compile_variant, compile_data, group_to_variant_map[p_group].size(), -1, true, SNAME("ShaderCompilation"));
 	p_version->group_compilation_tasks.write[p_group] = group_task;
 	p_version->group_loaded_from_cache.write[p_group] = false;

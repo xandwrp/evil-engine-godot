@@ -40,6 +40,7 @@
 #include "core/templates/vector.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server_enums.h"
+#include "servers/rendering/rendering_server_waits.h"
 
 #define PRINT_PIPELINE_COMPILATION_KEYS 0
 
@@ -82,6 +83,11 @@ private:
 		}
 
 		return !hashes_added.is_empty();
+	}
+
+	void _compile(Key p_key) {
+		RenderingServerWaits::PipelineCompiling compiling;
+		(creation_object->*creation_function)(p_key);
 	}
 
 	void _wait_for_all_pipelines() {
@@ -148,7 +154,8 @@ public:
 #endif
 
 		// Queue a background compilation task.
-		WorkerThreadPool::TaskID task_id = WorkerThreadPool::get_singleton()->add_template_task(creation_object, creation_function, p_key, p_high_priority, "PipelineCompilation");
+		RenderingServerWaits::pipeline_compilation_queued();
+		WorkerThreadPool::TaskID task_id = WorkerThreadPool::get_singleton()->add_template_task(this, &PipelineHashMapRD::_compile, p_key, p_high_priority, "PipelineCompilation");
 		compilation_tasks.insert(p_key_hash, task_id);
 	}
 

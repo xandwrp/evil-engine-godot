@@ -36,6 +36,8 @@
 
 BinaryMutex RenderingServerWaits::mutex;
 HashMap<String, RenderingServerWaits::Total> RenderingServerWaits::totals;
+SafeNumeric<int64_t> RenderingServerWaits::pipelines_compiling;
+SafeNumeric<int64_t> RenderingServerWaits::shaders_compiling;
 
 bool RenderingServerWaits::is_waiting_thread() {
 	RenderingServer *server = RenderingServer::get_singleton();
@@ -73,4 +75,12 @@ Dictionary RenderingServerWaits::get_thread_waits() {
 void RenderingServerWaits::clear_thread_waits() {
 	MutexLock lock(mutex);
 	totals.clear();
+}
+
+int64_t RenderingServerWaits::get_pipeline_compilations_in_flight() {
+	return pipelines_compiling.get();
+}
+
+int64_t RenderingServerWaits::get_shader_compilations_in_flight() {
+	return shaders_compiling.get();
 }

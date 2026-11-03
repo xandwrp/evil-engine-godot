@@ -3598,6 +3598,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("call_on_render_thread", "callable"), &RenderingServer::call_on_render_thread);
 	ClassDB::bind_static_method("RenderingServer", D_METHOD("get_thread_waits"), &RenderingServerWaits::get_thread_waits);
 	ClassDB::bind_static_method("RenderingServer", D_METHOD("clear_thread_waits"), &RenderingServerWaits::clear_thread_waits);
+	ClassDB::bind_static_method("RenderingServer", D_METHOD("get_pipeline_compilations_in_flight"), &RenderingServerWaits::get_pipeline_compilations_in_flight);
+	ClassDB::bind_static_method("RenderingServer", D_METHOD("get_shader_compilations_in_flight"), &RenderingServerWaits::get_shader_compilations_in_flight);
 
 #ifndef DISABLE_DEPRECATED
 	ClassDB::bind_method(D_METHOD("has_feature", "feature"), &RenderingServer::has_feature);

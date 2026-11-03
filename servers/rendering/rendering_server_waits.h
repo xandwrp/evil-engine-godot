@@ -32,6 +32,7 @@
 
 #include "core/os/mutex.h"
 #include "core/os/os.h"
+#include "core/templates/safe_refcount.h"
 #include "core/templates/hash_map.h"
 #include "core/variant/dictionary.h"
 
@@ -45,12 +46,29 @@ class RenderingServerWaits {
 
 	static BinaryMutex mutex;
 	static HashMap<String, Total> totals;
+	static SafeNumeric<int64_t> pipelines_compiling;
+	static SafeNumeric<int64_t> shaders_compiling;
 
 public:
 	static bool is_waiting_thread();
 	static void record(const char *p_server, const char *p_where, uint64_t p_from_usec);
 	static Dictionary get_thread_waits();
 	static void clear_thread_waits();
+	static int64_t get_pipeline_compilations_in_flight();
+	static int64_t get_shader_compilations_in_flight();
+
+	_FORCE_INLINE_ static void pipeline_compilation_queued() { pipelines_compiling.increment(); }
+	_FORCE_INLINE_ static void shader_compilations_queued(int64_t p_count) { shaders_compiling.add(p_count); }
+
+	class PipelineCompiling {
+	public:
+		_FORCE_INLINE_ ~PipelineCompiling() { pipelines_compiling.decrement(); }
+	};
+
+	class ShaderCompiling {
+	public:
+		_FORCE_INLINE_ ~ShaderCompiling() { shaders_compiling.decrement(); }
+	};
 
 	class Scope {
 		const char *server;

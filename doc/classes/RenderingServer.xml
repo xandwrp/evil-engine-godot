@@ -1683,6 +1683,12 @@
 				Returns the time taken to setup rendering on the CPU in milliseconds. This value is shared across all viewports and does [i]not[/i] require [method viewport_set_measure_render_time] to be enabled on a viewport to be queried. See also [method viewport_get_measured_render_time_cpu].
 			</description>
 		</method>
+		<method name="get_pipeline_compilations_in_flight" qualifiers="static">
+			<return type="int" />
+			<description>
+				Returns how many pipeline compilations are queued or running on [WorkerThreadPool]'s threads right now, for any source counted by [method get_rendering_info]. It reaches zero once every pipeline queued so far, such as those compiled ahead for a mesh instance entering a scenario, is ready, so a loading screen can keep drawing until a world's pipelines are compiled before showing it.
+			</description>
+		</method>
 		<method name="get_rendering_device" qualifiers="const">
 			<return type="RenderingDevice" />
 			<description>
@@ -1704,6 +1710,12 @@
 
 					print(RenderingServer.get_rendering_info(RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
 				[/codeblock]
+			</description>
+		</method>
+		<method name="get_shader_compilations_in_flight" qualifiers="static">
+			<return type="int" />
+			<description>
+				Returns how many shader variants are queued or compiling on [WorkerThreadPool]'s threads right now. A shader starts compiling its variants when its code is set, and drawing with it, or making pipelines for it, waits for them, so a loading screen can wait for this to reach zero before a world's instances enter a scenario.
 			</description>
 		</method>
 		<method name="get_shader_parameter_list" qualifiers="const">
