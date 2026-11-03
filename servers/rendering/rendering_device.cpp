@@ -5525,18 +5525,23 @@ Error RenderingDevice::screen_prepare_for_drawing(DisplayServerEnums::WindowID p
 	}
 
 	bool resize_required = false;
-	RDD::FramebufferID framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, it->value, resize_required);
+	RDD::SwapChainID swap_chain = it->value;
+	_thread_safe_.unlock();
+	RDD::FramebufferID framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, swap_chain, resize_required);
+	_thread_safe_.lock();
 	if (resize_required) {
 		// Flush everything so nothing can be using the swap chain before resizing it.
 		_flush_and_stall_for_all_frames();
 
-		Error err = driver->swap_chain_resize(main_queue, it->value, _get_swap_chain_desired_count());
+		Error err = driver->swap_chain_resize(main_queue, swap_chain, _get_swap_chain_desired_count());
 		if (err != OK) {
 			// Resize is allowed to fail silently because the window can be minimized.
 			return err;
 		}
 
-		framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, it->value, resize_required);
+		_thread_safe_.unlock();
+		framebuffer = driver->swap_chain_acquire_framebuffer(main_queue, swap_chain, resize_required);
+		_thread_safe_.lock();
 	}
 
 	if (framebuffer.id == 0) {
@@ -5548,7 +5553,7 @@ Error RenderingDevice::screen_prepare_for_drawing(DisplayServerEnums::WindowID p
 
 	// Store the framebuffer that will be used next to draw to this screen.
 	screen_framebuffers[p_screen] = framebuffer;
-	frames[frame].swap_chains_to_present.push_back(it->value);
+	frames[frame].swap_chains_to_present.push_back(swap_chain);
 
 	return OK;
 }
