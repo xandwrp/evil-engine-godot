@@ -41,10 +41,14 @@
 #include "core/templates/fixed_vector.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 #include "servers/rendering/rendering_device_binds.h"
+#include "servers/rendering/rendering_server_waits.h"
 #include "servers/rendering/rendering_shader_container.h"
 #include "servers/rendering/shader_include_db.h"
 
 #include "modules/modules_enabled.gen.h"
+
+#undef _THREAD_SAFE_METHOD_
+#define _THREAD_SAFE_METHOD_ RenderingServerWaits::Lock<Mutex> _thread_safe_method_(_thread_safe_, __FUNCTION__);
 
 #ifdef MODULE_GLSLANG_ENABLED
 #include "modules/glslang/shader_compile.h"
@@ -8465,7 +8469,11 @@ void RenderingDevice::_stall_for_frame(uint32_t p_frame) {
 
 	if (frames[p_frame].fence_signaled) {
 		GodotProfileZoneGroupedFirst(_profile_zone, "driver->fence_wait");
+		uint64_t waited_from = OS::get_singleton()->get_ticks_usec();
 		driver->fence_wait(frames[p_frame].fence);
+		if (RenderingServerWaits::is_waiting_thread()) {
+			RenderingServerWaits::record("RenderingDevice", __FUNCTION__, waited_from);
+		}
 		frames[p_frame].fence_signaled = false;
 
 		// Flush any pending requests for asynchronous buffer downloads.

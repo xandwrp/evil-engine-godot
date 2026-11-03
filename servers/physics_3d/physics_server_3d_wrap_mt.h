@@ -45,6 +45,8 @@
 #define SYNC_DEBUG
 #endif
 
+#define SYNC_WAIT
+
 #ifdef DEBUG_ENABLED
 #ifdef DEV_ENABLED
 #define MAIN_THREAD_SYNC_WARN WARN_PRINT("Call to " + String(__FUNCTION__) + " causing PhysicsServer3D synchronizations on every frame. This significantly affects performance.");
@@ -427,6 +429,7 @@ public:
 #undef DEBUG_SYNC
 #endif
 #undef SYNC_DEBUG
+#undef SYNC_WAIT
 
 #ifdef DEBUG_ENABLED
 #undef MAIN_THREAD_SYNC_WARN

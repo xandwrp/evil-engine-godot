@@ -1098,6 +1098,12 @@
 				Sets the texture [param repeat] mode to use for the canvas texture specified by the [param canvas_texture] RID.
 			</description>
 		</method>
+		<method name="clear_thread_waits" qualifiers="static">
+			<return type="void" />
+			<description>
+				Forgets every wait [method get_thread_waits] has counted so far.
+			</description>
+		</method>
 		<method name="compositor_create">
 			<return type="RID" />
 			<description>
@@ -1723,6 +1729,12 @@
 				var texture = ImageTexture.create_from_image(RenderingServer.texture_2d_get(texture_rid))
 				$Sprite2D.texture = texture
 				[/codeblock]
+			</description>
+		</method>
+		<method name="get_thread_waits" qualifiers="static">
+			<return type="Dictionary" />
+			<description>
+				Returns how often and how long threads other than the render thread waited on it since the last [method clear_thread_waits]: calls that returned a value or waited for the render thread to run them, the [RenderingDevice]'s lock, and stalls for an earlier frame's work to finish. Each key names the server and method that waited, such as [code]"RenderingServer.get_shader_parameter_list"[/code] or [code]"RenderingDevice.texture_create"[/code], and each value is a [PackedInt64Array] of the number of waits and the microseconds they took in all, then how many of them and how many microseconds were on [WorkerThreadPool]'s threads, such as those compiling shaders. While the render thread draws a frame and waits for vertical sync, such a call from a loading thread can wait up to a frame.
 			</description>
 		</method>
 		<method name="get_video_adapter_api_version" qualifiers="const">

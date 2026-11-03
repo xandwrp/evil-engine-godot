@@ -42,6 +42,7 @@
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/rendering_server_types.h"
+#include "servers/rendering/rendering_server_waits.h"
 #include "servers/server_wrap_mt_common.h"
 
 class RenderingServerDefault : public RenderingServer {
@@ -123,6 +124,8 @@ public:
 #else
 #define SYNC_DEBUG
 #endif
+
+#define SYNC_WAIT RenderingServerWaits::Scope _sync_wait("RenderingServer", __FUNCTION__);
 
 #ifdef DEBUG_ENABLED
 #define MAIN_THREAD_SYNC_WARN WARN_PRINT("Call to " + String(__FUNCTION__) + " causing RenderingServer synchronizations on every frame. This significantly affects performance.");
@@ -1182,6 +1185,7 @@ public:
 #undef ServerName
 #undef WRITE_ACTION
 #undef SYNC_DEBUG
+#undef SYNC_WAIT
 #ifdef DEBUG_ENABLED
 #undef MAIN_THREAD_SYNC_WARN
 #endif

@@ -38,6 +38,7 @@
 #include "core/variant/typed_array.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server_types.h"
+#include "servers/rendering/rendering_server_waits.h"
 #include "servers/rendering/shader_language.h"
 #include "servers/rendering/shader_warnings.h"
 
@@ -3595,6 +3596,8 @@ void RenderingServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_on_render_thread"), &RenderingServer::is_on_render_thread);
 	ClassDB::bind_method(D_METHOD("call_on_render_thread", "callable"), &RenderingServer::call_on_render_thread);
+	ClassDB::bind_static_method("RenderingServer", D_METHOD("get_thread_waits"), &RenderingServerWaits::get_thread_waits);
+	ClassDB::bind_static_method("RenderingServer", D_METHOD("clear_thread_waits"), &RenderingServerWaits::clear_thread_waits);
 
 #ifndef DISABLE_DEPRECATED
 	ClassDB::bind_method(D_METHOD("has_feature", "feature"), &RenderingServer::has_feature);
