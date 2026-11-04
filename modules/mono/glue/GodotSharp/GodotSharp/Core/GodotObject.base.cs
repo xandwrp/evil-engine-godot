@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -15,7 +16,7 @@ namespace Godot
         private bool _disposed;
         private static readonly Type _cachedType = typeof(GodotObject);
 
-        private static readonly Dictionary<Type, StringName?> _nativeNames = new Dictionary<Type, StringName?>();
+        private static readonly ConcurrentDictionary<Type, StringName?> _nativeNames = new ConcurrentDictionary<Type, StringName?>();
 
         internal IntPtr NativePtr;
         private bool _memoryOwn;
