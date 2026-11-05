@@ -65,6 +65,10 @@ class JoltPhysicsServer3D final : public PhysicsServer3D {
 	bool doing_sync = false;
 
 public:
+	enum SpaceParameterJolt {
+		SPACE_PARAM_STEP = 100,
+	};
+
 	enum HingeJointParamJolt {
 		HINGE_JOINT_LIMIT_SPRING_FREQUENCY = 100,
 		HINGE_JOINT_LIMIT_SPRING_DAMPING,

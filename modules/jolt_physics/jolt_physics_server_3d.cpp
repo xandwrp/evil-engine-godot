@@ -218,6 +218,21 @@ void JoltPhysicsServer3D::space_set_param(RID p_space, PS3DE::SpaceParameter p_p
 	JoltSpace3D *space = space_owner.get_or_null(p_space);
 	ERR_FAIL_NULL(space);
 
+	if ((int)p_param == SPACE_PARAM_STEP) {
+		ERR_FAIL_COND_MSG(active_spaces.has(space), "An active space is stepped by the physics server, so it can't also be stepped by hand.");
+		ERR_FAIL_COND_MSG(space->is_stepping() || flushing_queries, "A space can't be stepped by hand while it's stepping or flushing its queries.");
+		ERR_FAIL_COND_MSG(!(p_value > 0.0), "A space is stepped by hand by a time above zero.");
+
+		job_system->pre_step();
+		space->step((float)p_value);
+		job_system->post_step();
+
+		flushing_queries = true;
+		space->call_queries();
+		flushing_queries = false;
+		return;
+	}
+
 	space->set_param(p_param, (double)p_value);
 }
 
