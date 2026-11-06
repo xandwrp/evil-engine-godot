@@ -53,7 +53,18 @@ public:
 	};
 
 private:
+	class FloorLipFilter final : public JPH::CharacterContactListener {
+	public:
+		const JoltCharacter3D *owner = nullptr;
+		bool OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) override;
+	};
+
+	static constexpr float FLOOR_LIP_TOLERANCE = 0.01f;
+	static constexpr float FLOOR_LIP_INSET = 0.01f;
+	static constexpr float FLOOR_LIP_FACE_COS = 0.999848f;
+
 	JPH::Ref<JPH::CharacterVirtual> character;
+	FloorLipFilter floor_lip_filter;
 	RID space_rid;
 	JPH::ObjectLayer object_layer = 0;
 
@@ -76,6 +87,7 @@ private:
 	JoltSpace3D *_get_space() const;
 	JPH::ShapeRefC _make_box(const Vector3 &p_size, const Vector3 &p_center, float p_convex_radius) const;
 	bool _blocked_by_steep(const JPH::Vec3 &p_direction) const;
+	bool _is_floor_lip(const JPH::CharacterContact &p_contact) const;
 	bool _step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, float p_delta, float p_step_up, const JPH::Vec3 &p_gravity);
 
 protected:

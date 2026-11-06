@@ -39,9 +39,11 @@
 
 #include "core/object/class_db.h"
 
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
@@ -72,6 +74,44 @@ bool JoltCharacter3D::_blocked_by_steep(const JPH::Vec3 &p_direction) const {
 		}
 	}
 	return false;
+}
+
+bool JoltCharacter3D::FloorLipFilter::OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) {
+	return owner == nullptr || !owner->_is_floor_lip(p_contact);
+}
+
+bool JoltCharacter3D::_is_floor_lip(const JPH::CharacterContact &p_contact) const {
+	const float cos_max_slope = JPH::Cos(max_slope_angle);
+	if (character == nullptr || p_contact.mIsSensorB || p_contact.mBodyB.IsInvalid()) {
+		return false;
+	}
+
+	const JPH::Vec3 inward(-p_contact.mContactNormal.GetX(), 0, -p_contact.mContactNormal.GetZ());
+	const float inward_length = inward.Length();
+	if (inward_length < 1.0e-3f) {
+		return false;
+	}
+
+	const JPH::Real feet = character->GetCenterOfMassPosition().GetY() + character->GetShape()->GetLocalBounds().mMin.GetY();
+	if (p_contact.mPosition.GetY() > feet + FLOOR_LIP_TOLERANCE) {
+		return false;
+	}
+
+	const JoltSpace3D *space = _get_space();
+	ERR_FAIL_NULL_V(space, false);
+	const JPH::BodyLockRead lock(space->get_physics_system().GetBodyLockInterface(), p_contact.mBodyB);
+	if (!lock.Succeeded()) {
+		return false;
+	}
+
+	const JPH::TransformedShape shape = lock.GetBody().GetTransformedShape();
+	const JPH::RRayCast ray(p_contact.mPosition + inward * (FLOOR_LIP_INSET / inward_length) + JPH::Vec3(0, FLOOR_LIP_TOLERANCE, 0), JPH::Vec3(0, -2.0f * FLOOR_LIP_TOLERANCE, 0));
+	JPH::RayCastResult hit;
+	if (!shape.CastRay(ray, hit) || hit.mFraction <= 0.0f || hit.mSubShapeID2 != p_contact.mSubShapeIDB) {
+		return false;
+	}
+	const JPH::Vec3 top = shape.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction));
+	return top.GetY() >= cos_max_slope && top.Dot(p_contact.mContactNormal) < FLOOR_LIP_FACE_COS;
 }
 
 bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, float p_delta, float p_step_up, const JPH::Vec3 &p_gravity) {
@@ -145,6 +185,8 @@ bool JoltCharacter3D::create(RID p_space, const Vector3 &p_position, const Vecto
 
 	object_layer = space->map_to_object_layer(JoltBroadPhaseLayer::BODY_DYNAMIC, collision_layer, collision_mask);
 	character = new JPH::CharacterVirtual(&settings, to_jolt_r(p_position), JPH::Quat::sIdentity(), 0, &space->get_physics_system());
+	floor_lip_filter.owner = this;
+	character->SetListener(&floor_lip_filter);
 	slid_velocity = Vector3();
 	refresh_contacts();
 	return true;
