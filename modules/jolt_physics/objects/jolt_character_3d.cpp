@@ -326,9 +326,18 @@ TypedArray<Dictionary> JoltCharacter3D::get_contacts() const {
 		entry["sensor"] = contact.mIsSensorB;
 		entry["body"] = object != nullptr ? object->get_rid() : RID();
 		entry["shape"] = object != nullptr ? object->find_shape_index(contact.mSubShapeIDB) : -1;
+		entry["face"] = object != nullptr ? object->find_face_index(contact.mSubShapeIDB) : -1;
 		contacts.push_back(entry);
 	}
 	return contacts;
+}
+
+int JoltCharacter3D::get_ground_face() const {
+	ERR_FAIL_NULL_V(character, -1);
+	const JoltSpace3D *space = _get_space();
+	ERR_FAIL_NULL_V(space, -1);
+	const JoltShapedObject3D *object = character->GetGroundBodyID().IsInvalid() ? nullptr : space->try_get_shaped(character->GetGroundBodyID());
+	return object != nullptr ? object->find_face_index(character->GetGroundSubShapeID()) : -1;
 }
 
 PackedByteArray JoltCharacter3D::save_state() const {
@@ -434,6 +443,7 @@ void JoltCharacter3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_ground_velocity"), &JoltCharacter3D::get_ground_velocity);
 	ClassDB::bind_method(D_METHOD("get_ground_body"), &JoltCharacter3D::get_ground_body);
 	ClassDB::bind_method(D_METHOD("get_ground_shape"), &JoltCharacter3D::get_ground_shape);
+	ClassDB::bind_method(D_METHOD("get_ground_face"), &JoltCharacter3D::get_ground_face);
 
 	ClassDB::bind_method(D_METHOD("get_contacts"), &JoltCharacter3D::get_contacts);
 

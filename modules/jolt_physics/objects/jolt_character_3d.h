@@ -110,6 +110,7 @@ public:
 	Vector3 get_ground_velocity() const;
 	RID get_ground_body() const;
 	int get_ground_shape() const;
+	int get_ground_face() const;
 
 	TypedArray<Dictionary> get_contacts() const;
 
