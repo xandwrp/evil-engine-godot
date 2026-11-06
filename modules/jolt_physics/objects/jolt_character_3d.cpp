@@ -66,14 +66,17 @@ JPH::ShapeRefC JoltCharacter3D::_make_box(const Vector3 &p_size, const Vector3 &
 	return result.Get();
 }
 
-bool JoltCharacter3D::_blocked_by_steep(const JPH::Vec3 &p_direction) const {
+bool JoltCharacter3D::_blocked_by_steep(const JPH::Vec3 &p_direction, JPH::Vec3 &r_normal) const {
 	const float cos_max_slope = JPH::Cos(max_slope_angle);
+	float most = -1.0e-3f;
 	for (const JPH::CharacterContact &contact : character->GetActiveContacts()) {
-		if (contact.mHadCollision && !contact.mWasDiscarded && !contact.mIsSensorB && contact.mContactNormal.Dot(p_direction) < -1.0e-3f && contact.mContactNormal.GetY() < cos_max_slope) {
-			return true;
+		const float into = contact.mContactNormal.Dot(p_direction);
+		if (contact.mHadCollision && !contact.mWasDiscarded && !contact.mIsSensorB && into < most && contact.mContactNormal.GetY() < cos_max_slope) {
+			most = into;
+			r_normal = contact.mContactNormal;
 		}
 	}
-	return false;
+	return most < -1.0e-3f;
 }
 
 bool JoltCharacter3D::FloorLipFilter::OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) {
@@ -114,7 +117,7 @@ bool JoltCharacter3D::_is_floor_lip(const JPH::CharacterContact &p_contact) cons
 	return top.GetY() >= cos_max_slope && top.Dot(p_contact.mContactNormal) < FLOOR_LIP_FACE_COS;
 }
 
-bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, float p_delta, float p_step_up, const JPH::Vec3 &p_gravity) {
+bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, const JPH::Vec3 &p_blocked, float p_delta, float p_step_up, float p_step_down, const JPH::Vec3 &p_gravity) {
 	const JPH::PhysicsSystem &system = p_space.get_physics_system();
 	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
 	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
@@ -144,10 +147,11 @@ bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward,
 	character->SetLinearVelocity(p_forward / p_delta);
 	character->Update(p_delta, p_gravity, broad_phase_filter, object_layer_filter, body_filter, shape_filter, p_space.get_temp_allocator());
 	const JPH::Vec3 moved = JPH::Vec3(character->GetPosition() - start);
-	const bool landed = character->StickToFloor(JPH::Vec3(0, -(rise + walk_stairs_step_down_extra), 0), broad_phase_filter, object_layer_filter, body_filter, shape_filter, p_space.get_temp_allocator());
+	const bool landed = character->StickToFloor(JPH::Vec3(0, -(rise + MAX(walk_stairs_step_down_extra, p_step_down)), 0), broad_phase_filter, object_layer_filter, body_filter, shape_filter, p_space.get_temp_allocator());
 	const JPH::Vec3 stepped = JPH::Vec3(character->GetPosition() - start);
 	const float forward = p_forward.Length();
-	if (landed && character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround && stepped.GetY() > 1.0e-4f && moved.Dot(p_forward / forward) > 0.05f * forward) {
+	const JPH::Vec3 inward = JPH::Vec3(-p_blocked.GetX(), 0, -p_blocked.GetZ()).NormalizedOr(p_forward / forward);
+	if (landed && character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround && (p_blocked.IsNearZero() || stepped.GetY() > 1.0e-4f) && moved.Dot(p_forward / forward) > 0.05f * forward && moved.Dot(inward) > MAX(0.5f * p_forward.Dot(inward), 1.0e-3f)) {
 		character->SetLinearVelocity(velocity);
 		return true;
 	}
@@ -156,6 +160,71 @@ bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward,
 	character->RestoreState(saved);
 	character->SetLinearVelocity(velocity);
 	return false;
+}
+
+bool JoltCharacter3D::_face_ahead(const JoltSpace3D &p_space, const JPH::Vec3 &p_displacement, JPH::Vec3 &r_normal) const {
+	const JPH::PhysicsSystem &system = p_space.get_physics_system();
+	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
+	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
+
+	JPH::ShapeCastSettings settings;
+	settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+	settings.mBackFaceModeConvex = JPH::EBackFaceMode::IgnoreBackFaces;
+	settings.mActiveEdgeMode = JPH::EActiveEdgeMode::CollideOnlyWithActive;
+	settings.mUseShrunkenShapeAndConvexRadius = true;
+	settings.mReturnDeepestPoint = false;
+
+	const JPH::RMat44 transform = character->GetCenterOfMassTransform();
+	const JPH::RVec3 base = transform.GetTranslation();
+	JPH::AllHitCollisionCollector<JPH::CastShapeCollector> hits;
+	system.GetNarrowPhaseQuery().CastShape(JPH::RShapeCast(character->GetShape(), JPH::Vec3::sOne(), transform, p_displacement), settings, base, hits, broad_phase_filter, object_layer_filter);
+	hits.Sort();
+
+	for (const JPH::ShapeCastResult &hit : hits.mHits) {
+		if (hit.mFraction <= 0.0f || hit.mPenetrationAxis.Dot(p_displacement) <= 0.0f) {
+			continue;
+		}
+
+		JPH::CharacterContact contact;
+		contact.mPosition = base + hit.mContactPointOn2;
+		contact.mContactNormal = -hit.mPenetrationAxis.NormalizedOr(JPH::Vec3::sZero());
+		contact.mBodyB = hit.mBodyID2;
+		contact.mSubShapeIDB = hit.mSubShapeID2;
+		{
+			const JPH::BodyLockRead lock(system.GetBodyLockInterface(), hit.mBodyID2);
+			if (!lock.SucceededAndIsInBroadPhase() || lock.GetBody().IsSensor()) {
+				continue;
+			}
+			contact.mSurfaceNormal = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, contact.mPosition);
+		}
+		if (contact.mContactNormal.Dot(contact.mSurfaceNormal) < -0.0174524f) {
+			contact.mSurfaceNormal = -contact.mSurfaceNormal;
+		}
+		if (contact.mContactNormal.GetY() > contact.mSurfaceNormal.GetY()) {
+			contact.mSurfaceNormal = contact.mContactNormal;
+		}
+
+		if (_is_floor_lip(contact)) {
+			continue;
+		}
+
+		r_normal = contact.mSurfaceNormal;
+		return true;
+	}
+
+	return false;
+}
+
+void JoltCharacter3D::_walk_onto(JoltSpace3D &p_space, const JPH::Vec3 &p_normal, const JPH::Vec3 &p_left, float p_time, const JPH::Vec3 &p_gravity, const JPH::CharacterVirtual::ExtendedUpdateSettings &p_settings) {
+	const JPH::PhysicsSystem &system = p_space.get_physics_system();
+	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
+	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
+
+	const JPH::Vec3 velocity = character->GetLinearVelocity();
+	const JPH::Vec3 flat = p_left / p_time;
+	character->SetLinearVelocity(JPH::Vec3(flat.GetX(), -(p_normal.GetX() * flat.GetX() + p_normal.GetZ() * flat.GetZ()) / p_normal.GetY(), flat.GetZ()));
+	character->ExtendedUpdate(p_time, p_gravity, p_settings, broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), p_space.get_temp_allocator());
+	character->SetLinearVelocity(velocity);
 }
 
 JoltCharacter3D::~JoltCharacter3D() {
@@ -261,9 +330,24 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 	if (p_step_up > 0 && supported && desired_length > 0) {
 		const JPH::Vec3 direction = desired / desired_length;
 		const float achieved = MAX(0.0f, JPH::Vec3(character->GetPosition() - start).Dot(direction));
-		if (achieved + 1.0e-4f < desired_length && _blocked_by_steep(direction)) {
-			_step_up(*space, direction * MAX(walk_stairs_min_step_forward, desired_length - achieved), p_delta, p_step_up, to_jolt(p_gravity));
+		if (achieved + 1.0e-4f < desired_length) {
+			JPH::Vec3 face;
+			const JPH::Vec3 forward = direction * MAX(walk_stairs_min_step_forward, desired_length - achieved);
+			if (_blocked_by_steep(direction, face)) {
+				_step_up(*space, forward, face, p_delta, p_step_up, p_stick_down, to_jolt(p_gravity));
+			} else if (_face_ahead(*space, to_jolt(velocity) * (p_delta * (desired_length - achieved) / desired_length), face)) {
+				if (face.GetY() >= JPH::Cos(max_slope_angle)) {
+					_walk_onto(*space, face, direction * (desired_length - achieved), p_delta * (desired_length - achieved) / desired_length, to_jolt(p_gravity), settings);
+				} else {
+					_step_up(*space, forward, face, p_delta, p_step_up, p_stick_down, to_jolt(p_gravity));
+				}
+			} else if (achieved < 0.5f * desired_length) {
+				_step_up(*space, forward, JPH::Vec3::sZero(), p_delta, p_step_up, p_stick_down, to_jolt(p_gravity));
+			}
 		}
+	}
+	if (p_stick_down > 0 && supported && character->GetGroundState() != JPH::CharacterBase::EGroundState::OnGround) {
+		character->StickToFloor(JPH::Vec3(0, -p_stick_down, 0), broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
 	}
 
 	for (int pass = 0; pass < 2; pass++) {

@@ -86,9 +86,11 @@ private:
 
 	JoltSpace3D *_get_space() const;
 	JPH::ShapeRefC _make_box(const Vector3 &p_size, const Vector3 &p_center, float p_convex_radius) const;
-	bool _blocked_by_steep(const JPH::Vec3 &p_direction) const;
+	bool _blocked_by_steep(const JPH::Vec3 &p_direction, JPH::Vec3 &r_normal) const;
 	bool _is_floor_lip(const JPH::CharacterContact &p_contact) const;
-	bool _step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, float p_delta, float p_step_up, const JPH::Vec3 &p_gravity);
+	bool _step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward, const JPH::Vec3 &p_blocked, float p_delta, float p_step_up, float p_step_down, const JPH::Vec3 &p_gravity);
+	bool _face_ahead(const JoltSpace3D &p_space, const JPH::Vec3 &p_displacement, JPH::Vec3 &r_normal) const;
+	void _walk_onto(JoltSpace3D &p_space, const JPH::Vec3 &p_normal, const JPH::Vec3 &p_left, float p_time, const JPH::Vec3 &p_gravity, const JPH::CharacterVirtual::ExtendedUpdateSettings &p_settings);
 
 protected:
 	static void _bind_methods();
