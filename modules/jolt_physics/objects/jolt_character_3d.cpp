@@ -79,8 +79,32 @@ bool JoltCharacter3D::_blocked_by_steep(const JPH::Vec3 &p_direction, JPH::Vec3 
 	return most < -1.0e-3f;
 }
 
-bool JoltCharacter3D::FloorLipFilter::OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) {
+bool JoltCharacter3D::ContactFilter::OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) {
 	return owner == nullptr || !owner->_is_floor_lip(p_contact);
+}
+
+void JoltCharacter3D::ContactFilter::OnContactAdded(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
+	r_settings.mCanPushCharacter = !_pushes_toward(p_contact);
+}
+
+void JoltCharacter3D::ContactFilter::OnContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
+	r_settings.mCanPushCharacter = !_pushes_toward(p_contact);
+}
+
+bool JoltCharacter3D::_pushes_toward(const JPH::CharacterContact &p_contact) {
+	return p_contact.mMotionTypeB == JPH::EMotionType::Dynamic && p_contact.mContactNormal.Dot(p_contact.mLinearVelocity) > 0.0f;
+}
+
+Vector3 JoltCharacter3D::_follow_velocity(const JPH::CharacterContact &p_contact) {
+	Vector3 velocity = to_godot(p_contact.mLinearVelocity);
+	if (p_contact.mMotionTypeB == JPH::EMotionType::Dynamic) {
+		const Vector3 normal = to_godot(p_contact.mContactNormal);
+		const real_t toward = normal.dot(velocity);
+		if (toward > 0) {
+			velocity -= normal * toward;
+		}
+	}
+	return velocity;
 }
 
 bool JoltCharacter3D::_is_floor_lip(const JPH::CharacterContact &p_contact) const {
@@ -254,8 +278,8 @@ bool JoltCharacter3D::create(RID p_space, const Vector3 &p_position, const Vecto
 
 	object_layer = space->map_to_object_layer(JoltBroadPhaseLayer::BODY_DYNAMIC, collision_layer, collision_mask);
 	character = new JPH::CharacterVirtual(&settings, to_jolt_r(p_position), JPH::Quat::sIdentity(), 0, &space->get_physics_system());
-	floor_lip_filter.owner = this;
-	character->SetListener(&floor_lip_filter);
+	contact_filter.owner = this;
+	character->SetListener(&contact_filter);
 	slid_velocity = Vector3();
 	refresh_contacts();
 	return true;
@@ -356,7 +380,7 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 				continue;
 			}
 			const Vector3 normal = to_godot(contact.mContactNormal);
-			const real_t into = normal.dot(velocity - to_godot(contact.mLinearVelocity));
+			const real_t into = normal.dot(velocity - _follow_velocity(contact));
 			if (into < 0) {
 				velocity -= normal * into;
 			}
