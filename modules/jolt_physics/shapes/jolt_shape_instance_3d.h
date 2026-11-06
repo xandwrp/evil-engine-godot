@@ -66,6 +66,8 @@ class JoltShapeInstance3D {
 	ShapeReference shape;
 	JPH::ShapeRefC jolt_ref;
 	uint32_t id = next_id++;
+	float friction = NAN;
+	float bounce = NAN;
 	bool disabled = false;
 
 public:
@@ -84,6 +86,14 @@ public:
 
 	const Vector3 &get_scale() const { return scale; }
 	void set_scale(const Vector3 &p_scale) { scale = p_scale; }
+
+	float get_friction() const { return friction; }
+	float get_bounce() const { return bounce; }
+	void set_surface(float p_friction, float p_bounce) {
+		friction = p_friction;
+		bounce = p_bounce;
+	}
+	bool has_surface() const { return !Math::is_nan(friction) || !Math::is_nan(bounce); }
 
 	AABB get_aabb() const;
 

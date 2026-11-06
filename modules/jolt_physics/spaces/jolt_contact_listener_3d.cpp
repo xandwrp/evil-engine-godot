@@ -433,10 +433,12 @@ void JoltContactListener3D::_flush_contacts() {
 
 		const int shape_index1 = body1->find_shape_index(shape_pair.GetSubShapeID1());
 		const int shape_index2 = body2->find_shape_index(shape_pair.GetSubShapeID2());
+		const int face_index1 = body1->find_face_index(shape_pair.GetSubShapeID1());
+		const int face_index2 = body2->find_face_index(shape_pair.GetSubShapeID2());
 
 		for (const Contact &contact : manifold.contacts) {
-			body1->add_contact(body2, manifold.depth, shape_index1, shape_index2, manifold.normal1, contact.point1, contact.point2, contact.velocity1, contact.velocity2, contact.impulse1);
-			body2->add_contact(body1, manifold.depth, shape_index2, shape_index1, -manifold.normal1, contact.point2, contact.point1, contact.velocity2, contact.velocity1, -contact.impulse1);
+			body1->add_contact(body2, manifold.depth, shape_index1, shape_index2, face_index1, face_index2, manifold.normal1, contact.point1, contact.point2, contact.velocity1, contact.velocity2, contact.impulse1);
+			body2->add_contact(body1, manifold.depth, shape_index2, shape_index1, face_index2, face_index1, -manifold.normal1, contact.point2, contact.point1, contact.velocity2, contact.velocity1, -contact.impulse1);
 		}
 	}
 

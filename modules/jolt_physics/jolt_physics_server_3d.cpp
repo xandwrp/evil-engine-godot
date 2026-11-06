@@ -747,12 +747,22 @@ void JoltPhysicsServer3D::body_set_param(RID p_body, PS3DE::BodyParameter p_para
 	JoltBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
+	if ((int)p_param == BODY_PARAM_SHAPE_SURFACES) {
+		ERR_FAIL_COND_MSG(p_value.get_type() != Variant::PACKED_FLOAT32_ARRAY, "A body's shape surfaces are a PackedFloat32Array of friction and bounce pairs.");
+		body->set_shape_surfaces(p_value);
+		return;
+	}
+
 	body->set_param(p_param, p_value);
 }
 
 Variant JoltPhysicsServer3D::body_get_param(RID p_body, PS3DE::BodyParameter p_param) const {
 	const JoltBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL_V(body, Variant());
+
+	if ((int)p_param == BODY_PARAM_SHAPE_SURFACES) {
+		return body->get_shape_surfaces();
+	}
 
 	return body->get_param(p_param);
 }

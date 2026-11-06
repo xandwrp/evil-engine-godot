@@ -833,7 +833,7 @@ bool JoltBody3D::reports_all_kinematic_contacts() const {
 	return reports_contacts() && JoltProjectSettings::generate_all_kinematic_contacts;
 }
 
-void JoltBody3D::add_contact(const JoltBody3D *p_collider, float p_depth, int p_shape_index, int p_collider_shape_index, const Vector3 &p_normal, const Vector3 &p_position, const Vector3 &p_collider_position, const Vector3 &p_velocity, const Vector3 &p_collider_velocity, const Vector3 &p_impulse) {
+void JoltBody3D::add_contact(const JoltBody3D *p_collider, float p_depth, int p_shape_index, int p_collider_shape_index, int p_face_index, int p_collider_face_index, const Vector3 &p_normal, const Vector3 &p_position, const Vector3 &p_collider_position, const Vector3 &p_velocity, const Vector3 &p_collider_velocity, const Vector3 &p_impulse) {
 	const int max_contacts = get_max_contacts_reported();
 
 	if (max_contacts == 0) {
@@ -870,6 +870,8 @@ void JoltBody3D::add_contact(const JoltBody3D *p_collider, float p_depth, int p_
 		contact->collider_rid = p_collider->get_rid();
 		contact->shape_index = p_shape_index;
 		contact->collider_shape_index = p_collider_shape_index;
+		contact->face_index = p_face_index;
+		contact->collider_face_index = p_collider_face_index;
 	}
 }
 

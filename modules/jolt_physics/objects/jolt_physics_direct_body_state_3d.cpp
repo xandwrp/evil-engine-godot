@@ -34,6 +34,13 @@
 #include "../spaces/jolt_space_3d.h"
 #include "jolt_body_3d.h"
 
+#include "core/object/class_db.h"
+
+void JoltPhysicsDirectBodyState3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_contact_local_face", "contact_idx"), &JoltPhysicsDirectBodyState3D::get_contact_local_face);
+	ClassDB::bind_method(D_METHOD("get_contact_collider_face", "contact_idx"), &JoltPhysicsDirectBodyState3D::get_contact_collider_face);
+}
+
 JoltPhysicsDirectBodyState3D::JoltPhysicsDirectBodyState3D(JoltBody3D *p_body) :
 		body(p_body) {
 }
@@ -230,6 +237,16 @@ Object *JoltPhysicsDirectBodyState3D::get_contact_collider_object(int p_contact_
 int JoltPhysicsDirectBodyState3D::get_contact_collider_shape(int p_contact_idx) const {
 	ERR_FAIL_INDEX_V(p_contact_idx, (int)body->get_contact_count(), 0);
 	return body->get_contact(p_contact_idx).collider_shape_index;
+}
+
+int JoltPhysicsDirectBodyState3D::get_contact_local_face(int p_contact_idx) const {
+	ERR_FAIL_INDEX_V(p_contact_idx, (int)body->get_contact_count(), -1);
+	return body->get_contact(p_contact_idx).face_index;
+}
+
+int JoltPhysicsDirectBodyState3D::get_contact_collider_face(int p_contact_idx) const {
+	ERR_FAIL_INDEX_V(p_contact_idx, (int)body->get_contact_count(), -1);
+	return body->get_contact(p_contact_idx).collider_face_index;
 }
 
 Vector3 JoltPhysicsDirectBodyState3D::get_contact_collider_velocity_at_position(int p_contact_idx) const {

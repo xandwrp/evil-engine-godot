@@ -35,6 +35,8 @@
 class JoltConcavePolygonShape3D final : public JoltShape3D {
 	AABB aabb;
 	PackedVector3Array faces;
+	PackedFloat32Array friction;
+	PackedFloat32Array bounce;
 	bool back_face_collision = false;
 
 	virtual JPH::ShapeRefC _build() const override;
@@ -53,6 +55,9 @@ public:
 	virtual void set_margin(float p_margin) override {}
 
 	virtual AABB get_aabb() const override { return aabb; }
+
+	bool has_surfaces() const { return !friction.is_empty() || !bounce.is_empty(); }
+	void read_surface(int p_face, float &r_friction, float &r_bounce) const;
 
 	String to_string() const;
 };

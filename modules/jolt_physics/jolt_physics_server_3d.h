@@ -69,6 +69,10 @@ public:
 		SPACE_PARAM_STEP = 100,
 	};
 
+	enum BodyParameterJolt {
+		BODY_PARAM_SHAPE_SURFACES = 100,
+	};
+
 	enum HingeJointParamJolt {
 		HINGE_JOINT_LIMIT_SPRING_FREQUENCY = 100,
 		HINGE_JOINT_LIMIT_SPRING_DAMPING,

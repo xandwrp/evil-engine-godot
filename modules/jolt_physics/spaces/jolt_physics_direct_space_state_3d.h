@@ -59,8 +59,6 @@ class JoltPhysicsDirectSpaceState3D final : public PhysicsDirectSpaceState3D {
 	bool _body_motion_cast(const JoltBody3D &p_body, const Transform3D &p_transform, const Vector3 &p_scale, const Vector3 &p_motion, bool p_collide_separation_ray, const HashSet<RID> &p_excluded_bodies, const HashSet<ObjectID> &p_excluded_objects, real_t &r_safe_fraction, real_t &r_unsafe_fraction) const;
 	bool _body_motion_collide(const JoltBody3D &p_body, const Transform3D &p_transform, const Vector3 &p_motion, float p_margin, int p_max_collisions, const HashSet<RID> &p_excluded_bodies, const HashSet<ObjectID> &p_excluded_objects, PS3DT::MotionResult *r_result) const;
 
-	int _try_get_face_index(const JPH::Body &p_body, const JPH::SubShapeID &p_sub_shape_id);
-
 	void _generate_manifold(const JPH::CollideShapeResult &p_hit, JPH::ContactPoints &r_contact_points1, JPH::ContactPoints &r_contact_points2 JPH_IF_DEBUG_RENDERER(, JPH::RVec3Arg p_center_of_mass)) const;
 
 	void _collide_shape_queries(const JPH::Shape *p_shape, JPH::Vec3Arg p_scale, JPH::RMat44Arg p_transform_com, const JPH::CollideShapeSettings &p_settings, JPH::RVec3Arg p_base_offset, JPH::CollideShapeCollector &p_collector, const JPH::BroadPhaseLayerFilter &p_broad_phase_layer_filter = JPH::BroadPhaseLayerFilter(), const JPH::ObjectLayerFilter &p_object_layer_filter = JPH::ObjectLayerFilter(), const JPH::BodyFilter &p_body_filter = JPH::BodyFilter(), const JPH::ShapeFilter &p_shape_filter = JPH::ShapeFilter()) const;

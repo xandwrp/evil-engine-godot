@@ -53,6 +53,8 @@ public:
 		float depth = 0.0f;
 		int shape_index = 0;
 		int collider_shape_index = 0;
+		int face_index = -1;
+		int collider_face_index = -1;
 	};
 
 private:
@@ -210,7 +212,7 @@ public:
 
 	bool reports_all_kinematic_contacts() const;
 
-	void add_contact(const JoltBody3D *p_collider, float p_depth, int p_shape_index, int p_collider_shape_index, const Vector3 &p_normal, const Vector3 &p_position, const Vector3 &p_collider_position, const Vector3 &p_velocity, const Vector3 &p_collider_velocity, const Vector3 &p_impulse);
+	void add_contact(const JoltBody3D *p_collider, float p_depth, int p_shape_index, int p_collider_shape_index, int p_face_index, int p_collider_face_index, const Vector3 &p_normal, const Vector3 &p_position, const Vector3 &p_collider_position, const Vector3 &p_velocity, const Vector3 &p_collider_velocity, const Vector3 &p_impulse);
 
 	void reset_mass_properties();
 

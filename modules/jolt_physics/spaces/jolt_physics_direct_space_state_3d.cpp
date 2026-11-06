@@ -53,7 +53,6 @@
 #include <Jolt/Physics/Collision/CollidePointResult.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/RayCast.h>
-#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 bool JoltPhysicsDirectSpaceState3D::_cast_motion_impl(const JPH::Shape &p_jolt_shape, const Transform3D &p_transform_com, const Vector3 &p_scale, const Vector3 &p_motion, bool p_use_edge_removal, bool p_ignore_overlaps, const JPH::CollideShapeSettings &p_settings, const JPH::BroadPhaseLayerFilter &p_broad_phase_layer_filter, const JPH::ObjectLayerFilter &p_object_layer_filter, const JPH::BodyFilter &p_body_filter, const JPH::ShapeFilter &p_shape_filter, real_t &r_closest_safe, real_t &r_closest_unsafe) const {
@@ -380,23 +379,6 @@ bool JoltPhysicsDirectSpaceState3D::_body_motion_collide(const JoltBody3D &p_bod
 	return count > 0;
 }
 
-int JoltPhysicsDirectSpaceState3D::_try_get_face_index(const JPH::Body &p_body, const JPH::SubShapeID &p_sub_shape_id) {
-	if (!JoltProjectSettings::enable_ray_cast_face_index) {
-		return -1;
-	}
-
-	const JPH::Shape *root_shape = p_body.GetShape();
-	JPH::SubShapeID sub_shape_id_remainder;
-	const JPH::Shape *leaf_shape = root_shape->GetLeafShape(p_sub_shape_id, sub_shape_id_remainder);
-
-	if (leaf_shape->GetType() != JPH::EShapeType::Mesh) {
-		return -1;
-	}
-
-	const JPH::MeshShape *mesh_shape = static_cast<const JPH::MeshShape *>(leaf_shape);
-	return (int)mesh_shape->GetTriangleUserData(sub_shape_id_remainder);
-}
-
 void JoltPhysicsDirectSpaceState3D::_generate_manifold(const JPH::CollideShapeResult &p_hit, JPH::ContactPoints &r_contact_points1, JPH::ContactPoints &r_contact_points2 JPH_IF_DEBUG_RENDERER(, JPH::RVec3Arg p_center_of_mass)) const {
 	const JPH::PhysicsSystem &physics_system = space->get_physics_system();
 	const JPH::PhysicsSettings &physics_settings = physics_system.GetPhysicsSettings();
@@ -505,7 +487,7 @@ bool JoltPhysicsDirectSpaceState3D::intersect_ray(const PS3DT::RayParameters &p_
 		const int shape_index = shaped_object->find_shape_index(sub_shape_id);
 		ERR_FAIL_COND_V(shape_index == -1, false);
 		r_result.shape = shape_index;
-		r_result.face_index = _try_get_face_index(*object->get_jolt_body(), sub_shape_id);
+		r_result.face_index = shaped_object->find_face_index(sub_shape_id);
 	}
 
 	return true;

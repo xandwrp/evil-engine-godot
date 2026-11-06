@@ -50,6 +50,8 @@ protected:
 
 	Vector3 scale = Vector3(1, 1, 1);
 
+	bool shape_surfaces = false;
+
 	JPH::ShapeRefC jolt_shape;
 	JPH::ShapeRefC previous_jolt_shape;
 
@@ -58,6 +60,8 @@ protected:
 	virtual JPH::EMotionType _get_motion_type() const = 0;
 
 	bool _is_big() const;
+
+	void _update_shape_surfaces();
 
 	JPH::ShapeRefC _try_build_shape(bool p_optimize_compound);
 	JPH::ShapeRefC _try_build_single_shape();
@@ -120,6 +124,12 @@ public:
 
 	JoltShape3D *find_shape(uint32_t p_shape_instance_id) const;
 	JoltShape3D *find_shape(const JPH::SubShapeID &p_sub_shape_id) const;
+
+	int find_face_index(const JPH::SubShapeID &p_sub_shape_id) const;
+
+	PackedFloat32Array get_shape_surfaces() const;
+	void set_shape_surfaces(const PackedFloat32Array &p_surfaces);
+	void read_surface(const JPH::SubShapeID &p_sub_shape_id, float &r_friction, float &r_bounce) const;
 
 	Transform3D get_shape_transform_unscaled(int p_index) const;
 	Transform3D get_shape_transform_scaled(int p_index) const;

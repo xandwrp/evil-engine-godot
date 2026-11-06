@@ -70,7 +70,7 @@ JPH::ShapeRefC JoltConcavePolygonShape3D::_build() const {
 
 	JPH::MeshShapeSettings shape_settings(jolt_faces);
 	shape_settings.mActiveEdgeCosThresholdAngle = JoltProjectSettings::active_edge_threshold_cos;
-	shape_settings.mPerTriangleUserData = JoltProjectSettings::enable_ray_cast_face_index;
+	shape_settings.mPerTriangleUserData = JoltProjectSettings::enable_ray_cast_face_index || has_surfaces();
 
 	const JPH::ShapeSettings::ShapeResult shape_result = shape_settings.Create();
 	ERR_FAIL_COND_V_MSG(shape_result.HasError(), nullptr, vformat("Failed to build Jolt Physics concave polygon shape with %s. It returned the following error: '%s'. This shape belongs to %s.", to_string(), to_godot(shape_result.GetError()), _owners_to_string()));
@@ -98,6 +98,12 @@ Variant JoltConcavePolygonShape3D::get_data() const {
 	Dictionary data;
 	data["faces"] = faces;
 	data["backface_collision"] = back_face_collision;
+	if (!friction.is_empty()) {
+		data["friction"] = friction;
+	}
+	if (!bounce.is_empty()) {
+		data["bounce"] = bounce;
+	}
 	return data;
 }
 
@@ -112,12 +118,41 @@ void JoltConcavePolygonShape3D::set_data(const Variant &p_data) {
 	const Variant maybe_back_face_collision = data.get("backface_collision", Variant());
 	ERR_FAIL_COND(maybe_back_face_collision.get_type() != Variant::BOOL);
 
-	faces = maybe_faces;
+	const Variant maybe_friction = data.get("friction", PackedFloat32Array());
+	ERR_FAIL_COND(maybe_friction.get_type() != Variant::PACKED_FLOAT32_ARRAY);
+
+	const Variant maybe_bounce = data.get("bounce", PackedFloat32Array());
+	ERR_FAIL_COND(maybe_bounce.get_type() != Variant::PACKED_FLOAT32_ARRAY);
+
+	const PackedVector3Array new_faces = maybe_faces;
+	const PackedFloat32Array new_friction = maybe_friction;
+	const PackedFloat32Array new_bounce = maybe_bounce;
+	const int face_count = new_faces.size() / 3;
+	ERR_FAIL_COND_MSG(!new_friction.is_empty() && new_friction.size() != face_count, "A concave polygon shape's friction holds one value per triangle.");
+	ERR_FAIL_COND_MSG(!new_bounce.is_empty() && new_bounce.size() != face_count, "A concave polygon shape's bounce holds one value per triangle.");
+
+	faces = new_faces;
+	friction = new_friction;
+	bounce = new_bounce;
 	back_face_collision = maybe_back_face_collision;
 
 	aabb = _calculate_aabb();
 
 	destroy();
+}
+
+void JoltConcavePolygonShape3D::read_surface(int p_face, float &r_friction, float &r_bounce) const {
+	if (p_face < 0) {
+		return;
+	}
+
+	if (p_face < friction.size() && !Math::is_nan(friction[p_face])) {
+		r_friction = friction[p_face];
+	}
+
+	if (p_face < bounce.size() && !Math::is_nan(bounce[p_face])) {
+		r_bounce = bounce[p_face];
+	}
 }
 
 String JoltConcavePolygonShape3D::to_string() const {

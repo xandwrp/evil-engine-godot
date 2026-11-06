@@ -30,12 +30,15 @@
 
 #include "jolt_shaped_object_3d.h"
 
+#include "../jolt_project_settings.h"
 #include "../misc/jolt_math_funcs.h"
 #include "../misc/jolt_type_conversions.h"
+#include "../shapes/jolt_concave_polygon_shape_3d.h"
 #include "../shapes/jolt_shape_3d.h"
 #include "../spaces/jolt_space_3d.h"
 
 #include <Jolt/Physics/Collision/Shape/EmptyShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
@@ -44,7 +47,26 @@ bool JoltShapedObject3D::_is_big() const {
 	return get_aabb().get_longest_axis_size() >= 1000.0f;
 }
 
+void JoltShapedObject3D::_update_shape_surfaces() {
+	shape_surfaces = false;
+
+	for (const JoltShapeInstance3D &shape : shapes) {
+		if (shape.has_surface()) {
+			shape_surfaces = true;
+			return;
+		}
+
+		const JoltShape3D *jolt_shape_3d = shape.get_shape();
+		if (jolt_shape_3d != nullptr && jolt_shape_3d->get_type() == PS3DE::SHAPE_CONCAVE_POLYGON && static_cast<const JoltConcavePolygonShape3D *>(jolt_shape_3d)->has_surfaces()) {
+			shape_surfaces = true;
+			return;
+		}
+	}
+}
+
 JPH::ShapeRefC JoltShapedObject3D::_try_build_shape(bool p_optimize_compound) {
+	_update_shape_surfaces();
+
 	bool has_back_face_collision = is_area();
 	int built_shapes = 0;
 
@@ -394,6 +416,83 @@ JoltShape3D *JoltShapedObject3D::find_shape(uint32_t p_shape_instance_id) const 
 JoltShape3D *JoltShapedObject3D::find_shape(const JPH::SubShapeID &p_sub_shape_id) const {
 	const int shape_index = find_shape_index(p_sub_shape_id);
 	return shape_index != -1 ? shapes[shape_index].get_shape() : nullptr;
+}
+
+int JoltShapedObject3D::find_face_index(const JPH::SubShapeID &p_sub_shape_id) const {
+	ERR_FAIL_NULL_V(jolt_shape, -1);
+
+	const JoltShape3D *shape = find_shape(p_sub_shape_id);
+	if (shape == nullptr || shape->get_type() != PS3DE::SHAPE_CONCAVE_POLYGON) {
+		return -1;
+	}
+
+	if (!JoltProjectSettings::enable_ray_cast_face_index && !static_cast<const JoltConcavePolygonShape3D *>(shape)->has_surfaces()) {
+		return -1;
+	}
+
+	JPH::SubShapeID sub_shape_id_remainder;
+	const JPH::Shape *leaf_shape = jolt_shape->GetLeafShape(p_sub_shape_id, sub_shape_id_remainder);
+
+	if (leaf_shape == nullptr || leaf_shape->GetType() != JPH::EShapeType::Mesh) {
+		return -1;
+	}
+
+	return (int)static_cast<const JPH::MeshShape *>(leaf_shape)->GetTriangleUserData(sub_shape_id_remainder);
+}
+
+PackedFloat32Array JoltShapedObject3D::get_shape_surfaces() const {
+	PackedFloat32Array surfaces;
+	surfaces.resize((int)shapes.size() * 2);
+
+	for (int i = 0; i < (int)shapes.size(); ++i) {
+		surfaces.set(i * 2, shapes[i].get_friction());
+		surfaces.set(i * 2 + 1, shapes[i].get_bounce());
+	}
+
+	return surfaces;
+}
+
+void JoltShapedObject3D::set_shape_surfaces(const PackedFloat32Array &p_surfaces) {
+	ERR_FAIL_COND_MSG(p_surfaces.size() % 2 != 0, "A body's shape surfaces are friction and bounce pairs, one pair per shape.");
+
+	for (int i = 0; i < (int)shapes.size(); ++i) {
+		if (i * 2 + 1 < p_surfaces.size()) {
+			shapes[i].set_surface(p_surfaces[i * 2], p_surfaces[i * 2 + 1]);
+		} else {
+			shapes[i].set_surface(NAN, NAN);
+		}
+	}
+
+	_update_shape_surfaces();
+}
+
+void JoltShapedObject3D::read_surface(const JPH::SubShapeID &p_sub_shape_id, float &r_friction, float &r_bounce) const {
+	if (!shape_surfaces || jolt_shape == nullptr) {
+		return;
+	}
+
+	const int shape_index = find_shape_index(p_sub_shape_id);
+	if (shape_index == -1) {
+		return;
+	}
+
+	const JoltShapeInstance3D &instance = shapes[shape_index];
+
+	if (!Math::is_nan(instance.get_friction())) {
+		r_friction = instance.get_friction();
+	}
+
+	if (!Math::is_nan(instance.get_bounce())) {
+		r_bounce = instance.get_bounce();
+	}
+
+	const JoltShape3D *shape = instance.get_shape();
+	if (shape != nullptr && shape->get_type() == PS3DE::SHAPE_CONCAVE_POLYGON) {
+		const JoltConcavePolygonShape3D *concave = static_cast<const JoltConcavePolygonShape3D *>(shape);
+		if (concave->has_surfaces()) {
+			concave->read_surface(find_face_index(p_sub_shape_id), r_friction, r_bounce);
+		}
+	}
 }
 
 Transform3D JoltShapedObject3D::get_shape_transform_unscaled(int p_index) const {
