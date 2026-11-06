@@ -386,6 +386,8 @@ class TextServerAdvanced : public TextServerExtension {
 	_FORCE_INLINE_ void _font_clear_cache(FontAdvanced *p_font_data);
 	static void _generateMTSDF_threaded(void *p_td, uint32_t p_y);
 
+	static constexpr int64_t PREWARM_MAX_SIZE = 2048;
+
 	_FORCE_INLINE_ Vector2i _get_size(const FontAdvanced *p_font_data, int p_size) const {
 		if (p_font_data->msdf) {
 			return Vector2i(p_font_data->msdf_source_size * 64, 0);

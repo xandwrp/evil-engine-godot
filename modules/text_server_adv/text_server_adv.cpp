@@ -7381,8 +7381,10 @@ void TextServerAdvanced::_shape_run(ShapedTextDataAdvanced *p_sd, int64_t p_star
 				adv_rem = 0.0; // Reset on blank.
 			}
 			if (gl.index != 0) {
-				FontGlyph fgl;
-				_ensure_glyph(fd, fss, gl.index | mod, fgl);
+				if (fss.x <= PREWARM_MAX_SIZE * 64) {
+					FontGlyph fgl;
+					_ensure_glyph(fd, fss, gl.index | mod, fgl);
+				}
 				if (subpos) {
 					gl.x_off = (double)glyph_pos[i].x_offset / (64.0 / scale);
 				} else if (p_sd->orientation == ORIENTATION_HORIZONTAL) {
