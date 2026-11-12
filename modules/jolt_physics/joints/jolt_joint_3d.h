@@ -104,6 +104,9 @@ public:
 	bool is_collision_disabled() const { return collision_disabled; }
 	void set_collision_disabled(bool p_disabled);
 
+	virtual float get_applied_force() const { return 0.0f; }
+	virtual float get_applied_torque() const { return 0.0f; }
+
 	void destroy();
 
 	virtual void rebuild() {}

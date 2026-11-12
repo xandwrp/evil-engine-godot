@@ -55,7 +55,7 @@ public:
 	double get_param(PS3DE::PinJointParam p_param) const;
 	void set_param(PS3DE::PinJointParam p_param, double p_value);
 
-	float get_applied_force() const;
+	virtual float get_applied_force() const override;
 
 	virtual void rebuild() override;
 };

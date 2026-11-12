@@ -86,8 +86,8 @@ public:
 	bool get_jolt_flag(JoltFlag p_flag) const;
 	void set_jolt_flag(JoltFlag p_flag, bool p_enabled);
 
-	float get_applied_force() const;
-	float get_applied_torque() const;
+	virtual float get_applied_force() const override;
+	virtual float get_applied_torque() const override;
 
 	virtual void rebuild() override;
 };

@@ -352,8 +352,7 @@ float JoltHingeJoint3D::get_applied_force() const {
 		return constraint->GetTotalLambdaPosition().Length() / last_step;
 	} else {
 		JPH::HingeConstraint *constraint = static_cast<JPH::HingeConstraint *>(jolt_ref.GetPtr());
-		const JPH::Vec3 total_lambda = JPH::Vec3(constraint->GetTotalLambdaRotation()[0], constraint->GetTotalLambdaRotation()[1], constraint->GetTotalLambdaRotationLimits() + constraint->GetTotalLambdaMotor());
-		return total_lambda.Length() / last_step;
+		return constraint->GetTotalLambdaPosition().Length() / last_step;
 	}
 }
 
@@ -373,7 +372,8 @@ float JoltHingeJoint3D::get_applied_torque() const {
 		return constraint->GetTotalLambdaRotation().Length() / last_step;
 	} else {
 		JPH::HingeConstraint *constraint = static_cast<JPH::HingeConstraint *>(jolt_ref.GetPtr());
-		return constraint->GetTotalLambdaRotation().Length() / last_step;
+		const JPH::Vec3 total_lambda = JPH::Vec3(constraint->GetTotalLambdaRotation()[0], constraint->GetTotalLambdaRotation()[1], constraint->GetTotalLambdaRotationLimits() + constraint->GetTotalLambdaMotor());
+		return total_lambda.Length() / last_step;
 	}
 }
 
