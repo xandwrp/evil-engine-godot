@@ -43,6 +43,7 @@
 #include <Jolt/Physics/SoftBody/SoftBodyManifold.h>
 
 void JoltContactListener3D::OnContactAdded(const JPH::Body &p_body1, const JPH::Body &p_body2, const JPH::ContactManifold &p_manifold, JPH::ContactSettings &p_settings) {
+	_try_apply_face_surfaces(p_body1, p_body2, p_manifold, p_settings);
 	_try_override_collision_response(p_body1, p_body2, p_settings);
 	_try_apply_surface_velocities(p_body1, p_body2, p_settings);
 	_try_add_contacts(p_body1, p_body2, p_manifold, p_settings);
@@ -54,6 +55,7 @@ void JoltContactListener3D::OnContactAdded(const JPH::Body &p_body1, const JPH::
 }
 
 void JoltContactListener3D::OnContactPersisted(const JPH::Body &p_body1, const JPH::Body &p_body2, const JPH::ContactManifold &p_manifold, JPH::ContactSettings &p_settings) {
+	_try_apply_face_surfaces(p_body1, p_body2, p_manifold, p_settings);
 	_try_override_collision_response(p_body1, p_body2, p_settings);
 	_try_apply_surface_velocities(p_body1, p_body2, p_settings);
 	_try_add_contacts(p_body1, p_body2, p_manifold, p_settings);
@@ -83,6 +85,24 @@ void JoltContactListener3D::OnSoftBodyContactAdded(const JPH::Body &p_soft_body,
 #ifdef DEBUG_ENABLED
 	_try_add_debug_contacts(p_soft_body, p_manifold);
 #endif
+}
+
+bool JoltContactListener3D::_try_apply_face_surfaces(const JPH::Body &p_jolt_body1, const JPH::Body &p_jolt_body2, const JPH::ContactManifold &p_manifold, JPH::ContactSettings &p_settings) {
+	if (!JoltSpace3D::has_face_surfaces(p_jolt_body1) && !JoltSpace3D::has_face_surfaces(p_jolt_body2)) {
+		return false;
+	}
+
+	const JPH::Vec3 normal1 = p_manifold.mWorldSpaceNormal;
+	const JPH::Vec3 normal2 = -p_manifold.mWorldSpaceNormal;
+
+	float friction1, bounce1, friction2, bounce2;
+	JoltSpace3D::read_surface(p_jolt_body1, p_manifold.mSubShapeID1, &normal1, friction1, bounce1);
+	JoltSpace3D::read_surface(p_jolt_body2, p_manifold.mSubShapeID2, &normal2, friction2, bounce2);
+
+	p_settings.mCombinedFriction = JoltSpace3D::combine_friction(friction1, friction2);
+	p_settings.mCombinedRestitution = JoltSpace3D::combine_bounce(bounce1, bounce2);
+
+	return true;
 }
 
 bool JoltContactListener3D::_try_override_collision_response(const JPH::Body &p_jolt_body1, const JPH::Body &p_jolt_body2, JPH::ContactSettings &p_settings) {

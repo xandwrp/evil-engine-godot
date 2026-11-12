@@ -49,6 +49,13 @@ bool JoltShapedObject3D::_is_big() const {
 
 void JoltShapedObject3D::_update_shape_surfaces() {
 	shape_surfaces = false;
+	shape_face_surfaces = false;
+
+	for (const JoltShapeInstance3D &shape : shapes) {
+		if (shape.has_face_surfaces()) {
+			shape_face_surfaces = true;
+		}
+	}
 
 	for (const JoltShapeInstance3D &shape : shapes) {
 		if (shape.has_surface()) {
@@ -492,6 +499,46 @@ void JoltShapedObject3D::read_surface(const JPH::SubShapeID &p_sub_shape_id, flo
 		if (concave->has_surfaces()) {
 			concave->read_surface(find_face_index(p_sub_shape_id), r_friction, r_bounce);
 		}
+	}
+}
+
+Array JoltShapedObject3D::get_shape_face_surfaces() const {
+	Array surfaces;
+	surfaces.resize((int)shapes.size());
+
+	for (int i = 0; i < (int)shapes.size(); ++i) {
+		surfaces[i] = shapes[i].get_face_surfaces();
+	}
+
+	return surfaces;
+}
+
+void JoltShapedObject3D::set_shape_face_surfaces(const Array &p_surfaces) {
+	for (int i = 0; i < (int)shapes.size(); ++i) {
+		PackedFloat32Array faces;
+		if (i < p_surfaces.size() && p_surfaces[i].get_type() == Variant::PACKED_FLOAT32_ARRAY) {
+			faces = p_surfaces[i];
+			ERR_CONTINUE_MSG(faces.size() % 5 != 0, "A shape's face surfaces are a normal, a friction and a bounce per face.");
+		}
+		shapes[i].set_face_surfaces(faces);
+	}
+
+	_update_shape_surfaces();
+}
+
+void JoltShapedObject3D::read_face_surface(const JPH::SubShapeID &p_sub_shape_id, const Vector3 &p_normal, float &r_friction, float &r_bounce) const {
+	if (!shape_face_surfaces || jolt_shape == nullptr) {
+		return;
+	}
+
+	const int shape_index = find_shape_index(p_sub_shape_id);
+	if (shape_index == -1) {
+		return;
+	}
+
+	const JoltShapeInstance3D &instance = shapes[shape_index];
+	if (instance.has_face_surfaces()) {
+		instance.read_face_surface(p_normal, r_friction, r_bounce);
 	}
 }
 

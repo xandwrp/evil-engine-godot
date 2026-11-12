@@ -92,6 +92,11 @@ class JoltSpace3D {
 	void _post_step(float p_step);
 
 public:
+	static void read_surface(const JPH::Body &p_body, const JPH::SubShapeID &p_sub_shape_id, const JPH::Vec3 *p_normal, float &r_friction, float &r_bounce);
+	static bool has_face_surfaces(const JPH::Body &p_body);
+	static float combine_friction(float p_friction1, float p_friction2);
+	static float combine_bounce(float p_bounce1, float p_bounce2);
+
 	explicit JoltSpace3D(JPH::JobSystem *p_job_system, JPH::TempAllocator *p_temp_allocator);
 	~JoltSpace3D();
 

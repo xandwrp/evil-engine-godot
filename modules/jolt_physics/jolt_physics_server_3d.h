@@ -71,6 +71,7 @@ public:
 
 	enum BodyParameterJolt {
 		BODY_PARAM_SHAPE_SURFACES = 100,
+		BODY_PARAM_SHAPE_FACE_SURFACES = 101,
 	};
 
 	enum HingeJointParamJolt {

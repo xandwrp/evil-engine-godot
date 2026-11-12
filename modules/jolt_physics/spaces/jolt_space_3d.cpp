@@ -33,6 +33,7 @@
 #include "../joints/jolt_joint_3d.h"
 #include "../jolt_physics_server_3d.h"
 #include "../jolt_project_settings.h"
+#include "../misc/jolt_type_conversions.h"
 #include "../misc/jolt_stream_wrappers.h"
 #include "../objects/jolt_area_3d.h"
 #include "../objects/jolt_body_3d.h"
@@ -109,14 +110,31 @@ void JoltSpace3D::_post_step(float p_step) {
 	}
 }
 
-static void _read_surface(const JPH::Body &p_body, const JPH::SubShapeID &p_sub_shape_id, float &r_friction, float &r_bounce) {
+void JoltSpace3D::read_surface(const JPH::Body &p_body, const JPH::SubShapeID &p_sub_shape_id, const JPH::Vec3 *p_normal, float &r_friction, float &r_bounce) {
 	r_friction = p_body.GetFriction();
 	r_bounce = p_body.GetRestitution();
 
 	const JoltObject3D *object = reinterpret_cast<const JoltObject3D *>(p_body.GetUserData());
 	if (const JoltShapedObject3D *shaped = object != nullptr ? object->as_shaped() : nullptr) {
 		shaped->read_surface(p_sub_shape_id, r_friction, r_bounce);
+		if (p_normal != nullptr && shaped->has_shape_face_surfaces()) {
+			shaped->read_face_surface(p_sub_shape_id, to_godot(p_body.GetRotation().Conjugated() * *p_normal), r_friction, r_bounce);
+		}
 	}
+}
+
+bool JoltSpace3D::has_face_surfaces(const JPH::Body &p_body) {
+	const JoltObject3D *object = reinterpret_cast<const JoltObject3D *>(p_body.GetUserData());
+	const JoltShapedObject3D *shaped = object != nullptr ? object->as_shaped() : nullptr;
+	return shaped != nullptr && shaped->has_shape_face_surfaces();
+}
+
+float JoltSpace3D::combine_friction(float p_friction1, float p_friction2) {
+	return Math::sqrt(Math::abs(p_friction1) * Math::abs(p_friction2));
+}
+
+float JoltSpace3D::combine_bounce(float p_bounce1, float p_bounce2) {
+	return CLAMP(MAX(p_bounce1, p_bounce2), 0.0f, 1.0f);
 }
 
 JoltSpace3D::JoltSpace3D(JPH::JobSystem *p_job_system, JPH::TempAllocator *p_temp_allocator) :
@@ -160,16 +178,16 @@ JoltSpace3D::JoltSpace3D(JPH::JobSystem *p_job_system, JPH::TempAllocator *p_tem
 
 	physics_system->SetCombineFriction([](const JPH::Body &p_body1, const JPH::SubShapeID &p_sub_shape_id1, const JPH::Body &p_body2, const JPH::SubShapeID &p_sub_shape_id2) {
 		float friction1, bounce1, friction2, bounce2;
-		_read_surface(p_body1, p_sub_shape_id1, friction1, bounce1);
-		_read_surface(p_body2, p_sub_shape_id2, friction2, bounce2);
-		return Math::sqrt(Math::abs(friction1) * Math::abs(friction2));
+		read_surface(p_body1, p_sub_shape_id1, nullptr, friction1, bounce1);
+		read_surface(p_body2, p_sub_shape_id2, nullptr, friction2, bounce2);
+		return combine_friction(friction1, friction2);
 	});
 
 	physics_system->SetCombineRestitution([](const JPH::Body &p_body1, const JPH::SubShapeID &p_sub_shape_id1, const JPH::Body &p_body2, const JPH::SubShapeID &p_sub_shape_id2) {
 		float friction1, bounce1, friction2, bounce2;
-		_read_surface(p_body1, p_sub_shape_id1, friction1, bounce1);
-		_read_surface(p_body2, p_sub_shape_id2, friction2, bounce2);
-		return CLAMP(MAX(bounce1, bounce2), 0.0f, 1.0f);
+		read_surface(p_body1, p_sub_shape_id1, nullptr, friction1, bounce1);
+		read_surface(p_body2, p_sub_shape_id2, nullptr, friction2, bounce2);
+		return combine_bounce(bounce1, bounce2);
 	});
 }
 

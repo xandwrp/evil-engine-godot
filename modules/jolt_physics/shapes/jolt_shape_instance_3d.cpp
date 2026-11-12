@@ -97,3 +97,30 @@ bool JoltShapeInstance3D::try_build(bool p_object_has_back_face_collision) {
 
 	return true;
 }
+
+void JoltShapeInstance3D::read_face_surface(const Vector3 &p_normal, float &r_friction, float &r_bounce) const {
+	const int count = face_surfaces.size() / 5;
+	const float *faces = face_surfaces.ptr();
+	int best = -1;
+	real_t best_dot = -Math::INF;
+
+	for (int i = 0; i < count; ++i) {
+		const real_t dot = p_normal.dot(Vector3(faces[i * 5], faces[i * 5 + 1], faces[i * 5 + 2]));
+		if (dot > best_dot) {
+			best_dot = dot;
+			best = i;
+		}
+	}
+
+	if (best == -1) {
+		return;
+	}
+
+	if (!Math::is_nan(faces[best * 5 + 3])) {
+		r_friction = faces[best * 5 + 3];
+	}
+
+	if (!Math::is_nan(faces[best * 5 + 4])) {
+		r_bounce = faces[best * 5 + 4];
+	}
+}

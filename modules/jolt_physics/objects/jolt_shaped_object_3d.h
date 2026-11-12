@@ -51,6 +51,7 @@ protected:
 	Vector3 scale = Vector3(1, 1, 1);
 
 	bool shape_surfaces = false;
+	bool shape_face_surfaces = false;
 
 	JPH::ShapeRefC jolt_shape;
 	JPH::ShapeRefC previous_jolt_shape;
@@ -130,6 +131,11 @@ public:
 	PackedFloat32Array get_shape_surfaces() const;
 	void set_shape_surfaces(const PackedFloat32Array &p_surfaces);
 	void read_surface(const JPH::SubShapeID &p_sub_shape_id, float &r_friction, float &r_bounce) const;
+
+	Array get_shape_face_surfaces() const;
+	void set_shape_face_surfaces(const Array &p_surfaces);
+	bool has_shape_face_surfaces() const { return shape_face_surfaces; }
+	void read_face_surface(const JPH::SubShapeID &p_sub_shape_id, const Vector3 &p_normal, float &r_friction, float &r_bounce) const;
 
 	Transform3D get_shape_transform_unscaled(int p_index) const;
 	Transform3D get_shape_transform_scaled(int p_index) const;

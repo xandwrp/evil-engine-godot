@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/math/transform_3d.h"
+#include "core/variant/variant.h"
 
 #include <Jolt/Jolt.h>
 
@@ -68,6 +69,7 @@ class JoltShapeInstance3D {
 	uint32_t id = next_id++;
 	float friction = NAN;
 	float bounce = NAN;
+	PackedFloat32Array face_surfaces;
 	bool disabled = false;
 
 public:
@@ -94,6 +96,11 @@ public:
 		bounce = p_bounce;
 	}
 	bool has_surface() const { return !Math::is_nan(friction) || !Math::is_nan(bounce); }
+
+	const PackedFloat32Array &get_face_surfaces() const { return face_surfaces; }
+	void set_face_surfaces(const PackedFloat32Array &p_face_surfaces) { face_surfaces = p_face_surfaces; }
+	bool has_face_surfaces() const { return !face_surfaces.is_empty(); }
+	void read_face_surface(const Vector3 &p_normal, float &r_friction, float &r_bounce) const;
 
 	AABB get_aabb() const;
 
