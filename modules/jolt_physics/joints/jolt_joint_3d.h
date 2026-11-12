@@ -41,6 +41,13 @@
 class JoltBody3D;
 class JoltSpace3D;
 
+enum JoltJointType {
+	JOLT_JOINT_TYPE_NONE,
+	JOLT_JOINT_TYPE_FIXED,
+	JOLT_JOINT_TYPE_DISTANCE,
+	JOLT_JOINT_TYPE_PULLEY,
+};
+
 class JoltJoint3D {
 protected:
 	bool enabled = true;
@@ -81,6 +88,7 @@ public:
 	virtual ~JoltJoint3D();
 
 	virtual PS3DE::JointType get_type() const { return PS3DE::JOINT_TYPE_MAX; }
+	virtual JoltJointType get_jolt_type() const { return JOLT_JOINT_TYPE_NONE; }
 
 	RID get_rid() const { return rid; }
 	void set_rid(const RID &p_rid) { rid = p_rid; }

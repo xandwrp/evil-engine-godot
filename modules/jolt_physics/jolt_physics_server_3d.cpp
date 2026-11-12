@@ -31,10 +31,13 @@
 #include "jolt_physics_server_3d.h"
 
 #include "joints/jolt_cone_twist_joint_3d.h"
+#include "joints/jolt_distance_joint_3d.h"
+#include "joints/jolt_fixed_joint_3d.h"
 #include "joints/jolt_generic_6dof_joint_3d.h"
 #include "joints/jolt_hinge_joint_3d.h"
 #include "joints/jolt_joint_3d.h"
 #include "joints/jolt_pin_joint_3d.h"
+#include "joints/jolt_pulley_joint_3d.h"
 #include "joints/jolt_slider_joint_3d.h"
 #include "objects/jolt_area_3d.h"
 #include "objects/jolt_body_3d.h"
@@ -1296,7 +1299,7 @@ void JoltPhysicsServer3D::joint_clear(RID p_joint) {
 	JoltJoint3D *joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(joint);
 
-	if (joint->get_type() != PS3DE::JOINT_TYPE_MAX) {
+	if (joint->get_type() != PS3DE::JOINT_TYPE_MAX || joint->get_jolt_type() != JOLT_JOINT_TYPE_NONE) {
 		JoltJoint3D *empty_joint = memnew(JoltJoint3D);
 		empty_joint->set_rid(joint->get_rid());
 
@@ -1787,6 +1790,60 @@ void JoltPhysicsServer3D::space_dump_debug_snapshot(RID p_space, const String &p
 }
 
 #endif
+
+void JoltPhysicsServer3D::joint_make_fixed(RID p_joint, RID p_body_a, const Transform3D &p_local_ref_a, RID p_body_b, const Transform3D &p_local_ref_b) {
+	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(old_joint);
+
+	JoltBody3D *body_a = body_owner.get_or_null(p_body_a);
+	ERR_FAIL_NULL(body_a);
+
+	JoltBody3D *body_b = body_owner.get_or_null(p_body_b);
+	ERR_FAIL_COND(body_a == body_b);
+
+	JoltJoint3D *new_joint = memnew(JoltFixedJoint3D(*old_joint, body_a, body_b, p_local_ref_a, p_local_ref_b));
+
+	memdelete(old_joint);
+	old_joint = nullptr;
+
+	joint_owner.replace(p_joint, new_joint);
+}
+
+void JoltPhysicsServer3D::joint_make_distance(RID p_joint, RID p_body_a, const Vector3 &p_local_a, RID p_body_b, const Vector3 &p_local_b) {
+	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(old_joint);
+
+	JoltBody3D *body_a = body_owner.get_or_null(p_body_a);
+	ERR_FAIL_NULL(body_a);
+
+	JoltBody3D *body_b = body_owner.get_or_null(p_body_b);
+	ERR_FAIL_COND(body_a == body_b);
+
+	JoltJoint3D *new_joint = memnew(JoltDistanceJoint3D(*old_joint, body_a, body_b, p_local_a, p_local_b));
+
+	memdelete(old_joint);
+	old_joint = nullptr;
+
+	joint_owner.replace(p_joint, new_joint);
+}
+
+void JoltPhysicsServer3D::joint_make_pulley(RID p_joint, RID p_body_a, const Vector3 &p_local_a, const Vector3 &p_fixed_a, RID p_body_b, const Vector3 &p_local_b, const Vector3 &p_fixed_b, float p_ratio) {
+	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(old_joint);
+
+	JoltBody3D *body_a = body_owner.get_or_null(p_body_a);
+	ERR_FAIL_NULL(body_a);
+
+	JoltBody3D *body_b = body_owner.get_or_null(p_body_b);
+	ERR_FAIL_COND(body_a == body_b);
+
+	JoltJoint3D *new_joint = memnew(JoltPulleyJoint3D(*old_joint, body_a, body_b, p_local_a, p_local_b, p_fixed_a, p_fixed_b, p_ratio));
+
+	memdelete(old_joint);
+	old_joint = nullptr;
+
+	joint_owner.replace(p_joint, new_joint);
+}
 
 bool JoltPhysicsServer3D::joint_get_enabled(RID p_joint) const {
 	JoltJoint3D *joint = joint_owner.get_or_null(p_joint);

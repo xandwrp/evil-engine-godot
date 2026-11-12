@@ -34,12 +34,16 @@
 #include "core/object/object.h"
 #include "core/templates/rid.h"
 
+class JoltDistanceJoint3D;
 class JoltJoint3D;
+class JoltPulleyJoint3D;
 
 class JoltJoints3D : public Object {
 	GDCLASS(JoltJoints3D, Object);
 
 	static JoltJoint3D *_get_joint(const RID &p_joint);
+	static JoltDistanceJoint3D *_get_distance(const RID &p_joint);
+	static JoltPulleyJoint3D *_get_pulley(const RID &p_joint);
 
 protected:
 	static void _bind_methods();
@@ -68,4 +72,21 @@ public:
 
 	static bool get_axis_flag(const RID &p_joint, Vector3::Axis p_axis, int p_flag);
 	static void set_axis_flag(const RID &p_joint, Vector3::Axis p_axis, int p_flag, bool p_enabled);
+
+	static void make_fixed(const RID &p_joint, const RID &p_body_a, const Transform3D &p_local_a, const RID &p_body_b, const Transform3D &p_local_b);
+	static void make_distance(const RID &p_joint, const RID &p_body_a, const Vector3 &p_local_a, const RID &p_body_b, const Vector3 &p_local_b);
+	static void make_pulley(const RID &p_joint, const RID &p_body_a, const Vector3 &p_local_a, const Vector3 &p_fixed_a, const RID &p_body_b, const Vector3 &p_local_b, const Vector3 &p_fixed_b, float p_ratio);
+
+	static int get_jolt_type(const RID &p_joint);
+
+	static Vector2 get_distance_limits(const RID &p_joint);
+	static void set_distance_limits(const RID &p_joint, float p_min, float p_max);
+	static Vector3 get_distance_spring(const RID &p_joint);
+	static void set_distance_spring(const RID &p_joint, int p_mode, float p_value, float p_damping);
+	static float get_distance(const RID &p_joint);
+
+	static Vector2 get_pulley_limits(const RID &p_joint);
+	static void set_pulley_limits(const RID &p_joint, float p_min, float p_max);
+	static float get_pulley_ratio(const RID &p_joint);
+	static float get_pulley_length(const RID &p_joint);
 };

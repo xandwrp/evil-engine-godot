@@ -462,6 +462,10 @@ public:
 	void space_dump_debug_snapshot(RID p_space, const String &p_dir);
 #endif
 
+	void joint_make_fixed(RID p_joint, RID p_body_a, const Transform3D &p_local_ref_a, RID p_body_b, const Transform3D &p_local_ref_b);
+	void joint_make_distance(RID p_joint, RID p_body_a, const Vector3 &p_local_a, RID p_body_b, const Vector3 &p_local_b);
+	void joint_make_pulley(RID p_joint, RID p_body_a, const Vector3 &p_local_a, const Vector3 &p_fixed_a, RID p_body_b, const Vector3 &p_local_b, const Vector3 &p_fixed_b, float p_ratio);
+
 	bool joint_get_enabled(RID p_joint) const;
 	void joint_set_enabled(RID p_joint, bool p_enabled);
 

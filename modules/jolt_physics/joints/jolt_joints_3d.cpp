@@ -31,7 +31,9 @@
 #include "jolt_joints_3d.h"
 
 #include "../jolt_physics_server_3d.h"
+#include "jolt_distance_joint_3d.h"
 #include "jolt_joint_3d.h"
+#include "jolt_pulley_joint_3d.h"
 
 using Server = JoltPhysicsServer3D;
 
@@ -43,6 +45,22 @@ JoltJoint3D *JoltJoints3D::_get_joint(const RID &p_joint) {
 	ERR_FAIL_NULL_V_MSG(joint, nullptr, "No Jolt joint has this RID.");
 
 	return joint;
+}
+
+JoltDistanceJoint3D *JoltJoints3D::_get_distance(const RID &p_joint) {
+	JoltJoint3D *joint = _get_joint(p_joint);
+	ERR_FAIL_NULL_V(joint, nullptr);
+	ERR_FAIL_COND_V_MSG(joint->get_jolt_type() != JOLT_JOINT_TYPE_DISTANCE, nullptr, "This joint isn't a distance joint.");
+
+	return static_cast<JoltDistanceJoint3D *>(joint);
+}
+
+JoltPulleyJoint3D *JoltJoints3D::_get_pulley(const RID &p_joint) {
+	JoltJoint3D *joint = _get_joint(p_joint);
+	ERR_FAIL_NULL_V(joint, nullptr);
+	ERR_FAIL_COND_V_MSG(joint->get_jolt_type() != JOLT_JOINT_TYPE_PULLEY, nullptr, "This joint isn't a pulley.");
+
+	return static_cast<JoltPulleyJoint3D *>(joint);
 }
 
 bool JoltJoints3D::is_enabled(const RID &p_joint) {
@@ -202,6 +220,82 @@ void JoltJoints3D::set_axis_flag(const RID &p_joint, Vector3::Axis p_axis, int p
 	Server::get_singleton()->generic_6dof_joint_set_jolt_flag(p_joint, p_axis, (Server::G6DOFJointAxisFlagJolt)p_flag, p_enabled);
 }
 
+void JoltJoints3D::make_fixed(const RID &p_joint, const RID &p_body_a, const Transform3D &p_local_a, const RID &p_body_b, const Transform3D &p_local_b) {
+	Server *server = Server::get_singleton();
+	ERR_FAIL_NULL(server);
+
+	server->joint_make_fixed(p_joint, p_body_a, p_local_a, p_body_b, p_local_b);
+}
+
+void JoltJoints3D::make_distance(const RID &p_joint, const RID &p_body_a, const Vector3 &p_local_a, const RID &p_body_b, const Vector3 &p_local_b) {
+	Server *server = Server::get_singleton();
+	ERR_FAIL_NULL(server);
+
+	server->joint_make_distance(p_joint, p_body_a, p_local_a, p_body_b, p_local_b);
+}
+
+void JoltJoints3D::make_pulley(const RID &p_joint, const RID &p_body_a, const Vector3 &p_local_a, const Vector3 &p_fixed_a, const RID &p_body_b, const Vector3 &p_local_b, const Vector3 &p_fixed_b, float p_ratio) {
+	ERR_FAIL_COND_MSG(!(p_ratio > 0.0f), "A pulley's ratio is above zero.");
+
+	Server *server = Server::get_singleton();
+	ERR_FAIL_NULL(server);
+
+	server->joint_make_pulley(p_joint, p_body_a, p_local_a, p_fixed_a, p_body_b, p_local_b, p_fixed_b, p_ratio);
+}
+
+int JoltJoints3D::get_jolt_type(const RID &p_joint) {
+	JoltJoint3D *joint = _get_joint(p_joint);
+	return joint != nullptr ? (int)joint->get_jolt_type() : (int)JOLT_JOINT_TYPE_NONE;
+}
+
+Vector2 JoltJoints3D::get_distance_limits(const RID &p_joint) {
+	JoltDistanceJoint3D *joint = _get_distance(p_joint);
+	return joint != nullptr ? Vector2(joint->get_min_distance(), joint->get_max_distance()) : Vector2();
+}
+
+void JoltJoints3D::set_distance_limits(const RID &p_joint, float p_min, float p_max) {
+	if (JoltDistanceJoint3D *joint = _get_distance(p_joint)) {
+		joint->set_distance(p_min, p_max);
+	}
+}
+
+Vector3 JoltJoints3D::get_distance_spring(const RID &p_joint) {
+	JoltDistanceJoint3D *joint = _get_distance(p_joint);
+	return joint != nullptr ? Vector3(joint->get_spring_mode(), joint->get_spring_value(), joint->get_spring_damping()) : Vector3();
+}
+
+void JoltJoints3D::set_distance_spring(const RID &p_joint, int p_mode, float p_value, float p_damping) {
+	if (JoltDistanceJoint3D *joint = _get_distance(p_joint)) {
+		joint->set_spring(p_mode, p_value, p_damping);
+	}
+}
+
+float JoltJoints3D::get_distance(const RID &p_joint) {
+	JoltDistanceJoint3D *joint = _get_distance(p_joint);
+	return joint != nullptr ? joint->get_current_distance() : 0.0f;
+}
+
+Vector2 JoltJoints3D::get_pulley_limits(const RID &p_joint) {
+	JoltPulleyJoint3D *joint = _get_pulley(p_joint);
+	return joint != nullptr ? Vector2(joint->get_min_length(), joint->get_max_length()) : Vector2();
+}
+
+void JoltJoints3D::set_pulley_limits(const RID &p_joint, float p_min, float p_max) {
+	if (JoltPulleyJoint3D *joint = _get_pulley(p_joint)) {
+		joint->set_length(p_min, p_max);
+	}
+}
+
+float JoltJoints3D::get_pulley_ratio(const RID &p_joint) {
+	JoltPulleyJoint3D *joint = _get_pulley(p_joint);
+	return joint != nullptr ? joint->get_ratio() : 0.0f;
+}
+
+float JoltJoints3D::get_pulley_length(const RID &p_joint) {
+	JoltPulleyJoint3D *joint = _get_pulley(p_joint);
+	return joint != nullptr ? joint->get_current_length() : 0.0f;
+}
+
 void JoltJoints3D::_bind_methods() {
 	const StringName c = get_class_static();
 
@@ -225,6 +319,29 @@ void JoltJoints3D::_bind_methods() {
 	ClassDB::bind_static_method(c, D_METHOD("set_axis_param", "joint", "axis", "param", "value"), &JoltJoints3D::set_axis_param);
 	ClassDB::bind_static_method(c, D_METHOD("get_axis_flag", "joint", "axis", "flag"), &JoltJoints3D::get_axis_flag);
 	ClassDB::bind_static_method(c, D_METHOD("set_axis_flag", "joint", "axis", "flag", "enabled"), &JoltJoints3D::set_axis_flag);
+
+	ClassDB::bind_static_method(c, D_METHOD("make_fixed", "joint", "body_a", "local_a", "body_b", "local_b"), &JoltJoints3D::make_fixed);
+	ClassDB::bind_static_method(c, D_METHOD("make_distance", "joint", "body_a", "local_a", "body_b", "local_b"), &JoltJoints3D::make_distance);
+	ClassDB::bind_static_method(c, D_METHOD("make_pulley", "joint", "body_a", "local_a", "fixed_a", "body_b", "local_b", "fixed_b", "ratio"), &JoltJoints3D::make_pulley);
+	ClassDB::bind_static_method(c, D_METHOD("get_jolt_type", "joint"), &JoltJoints3D::get_jolt_type);
+
+	ClassDB::bind_static_method(c, D_METHOD("get_distance_limits", "joint"), &JoltJoints3D::get_distance_limits);
+	ClassDB::bind_static_method(c, D_METHOD("set_distance_limits", "joint", "min", "max"), &JoltJoints3D::set_distance_limits);
+	ClassDB::bind_static_method(c, D_METHOD("get_distance_spring", "joint"), &JoltJoints3D::get_distance_spring);
+	ClassDB::bind_static_method(c, D_METHOD("set_distance_spring", "joint", "mode", "value", "damping"), &JoltJoints3D::set_distance_spring);
+	ClassDB::bind_static_method(c, D_METHOD("get_distance", "joint"), &JoltJoints3D::get_distance);
+
+	ClassDB::bind_static_method(c, D_METHOD("get_pulley_limits", "joint"), &JoltJoints3D::get_pulley_limits);
+	ClassDB::bind_static_method(c, D_METHOD("set_pulley_limits", "joint", "min", "max"), &JoltJoints3D::set_pulley_limits);
+	ClassDB::bind_static_method(c, D_METHOD("get_pulley_ratio", "joint"), &JoltJoints3D::get_pulley_ratio);
+	ClassDB::bind_static_method(c, D_METHOD("get_pulley_length", "joint"), &JoltJoints3D::get_pulley_length);
+
+	ClassDB::bind_integer_constant(c, StringName(), "TYPE_NONE", JOLT_JOINT_TYPE_NONE);
+	ClassDB::bind_integer_constant(c, StringName(), "TYPE_FIXED", JOLT_JOINT_TYPE_FIXED);
+	ClassDB::bind_integer_constant(c, StringName(), "TYPE_DISTANCE", JOLT_JOINT_TYPE_DISTANCE);
+	ClassDB::bind_integer_constant(c, StringName(), "TYPE_PULLEY", JOLT_JOINT_TYPE_PULLEY);
+	ClassDB::bind_integer_constant(c, StringName(), "SPRING_FREQUENCY", 0);
+	ClassDB::bind_integer_constant(c, StringName(), "SPRING_STIFFNESS", 1);
 
 	ClassDB::bind_integer_constant(c, StringName(), "HINGE_LIMIT_SPRING_FREQUENCY", Server::HINGE_JOINT_LIMIT_SPRING_FREQUENCY);
 	ClassDB::bind_integer_constant(c, StringName(), "HINGE_LIMIT_SPRING_DAMPING", Server::HINGE_JOINT_LIMIT_SPRING_DAMPING);
