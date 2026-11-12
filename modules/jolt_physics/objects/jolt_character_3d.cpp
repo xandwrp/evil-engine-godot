@@ -410,7 +410,8 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 				continue;
 			}
 			const Vector3 normal = to_godot(contact.mContactNormal);
-			const real_t into = normal.dot(velocity - _follow_velocity(contact));
+			const Vector3 follow = contact.mCharacterIDB.IsInvalid() ? _follow_velocity(contact) : Vector3();
+			const real_t into = normal.dot(velocity - follow);
 			if (into < 0) {
 				velocity -= normal * into;
 			}
