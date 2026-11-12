@@ -79,6 +79,15 @@ bool JoltCharacter3D::_blocked_by_steep(const JPH::Vec3 &p_direction, JPH::Vec3 
 	return most < -1.0e-3f;
 }
 
+bool JoltCharacter3D::_blocked_by_character(const JPH::Vec3 &p_direction) const {
+	for (const JPH::CharacterContact &contact : character->GetActiveContacts()) {
+		if (!contact.mCharacterIDB.IsInvalid() && contact.mHadCollision && !contact.mWasDiscarded && contact.mContactNormal.Dot(p_direction) < -1.0e-3f) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool JoltCharacter3D::ContactFilter::OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) {
 	return owner == nullptr || !owner->_is_floor_lip(p_contact);
 }
@@ -89,6 +98,14 @@ void JoltCharacter3D::ContactFilter::OnContactAdded(const JPH::CharacterVirtual 
 
 void JoltCharacter3D::ContactFilter::OnContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
 	r_settings.mCanPushCharacter = !_pushes_toward(p_contact);
+}
+
+void JoltCharacter3D::ContactFilter::OnCharacterContactAdded(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
+	r_settings.mCanPushCharacter = false;
+}
+
+void JoltCharacter3D::ContactFilter::OnCharacterContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
+	r_settings.mCanPushCharacter = false;
 }
 
 bool JoltCharacter3D::_pushes_toward(const JPH::CharacterContact &p_contact) {
@@ -280,12 +297,25 @@ bool JoltCharacter3D::create(RID p_space, const Vector3 &p_position, const Vecto
 	character = new JPH::CharacterVirtual(&settings, to_jolt_r(p_position), JPH::Quat::sIdentity(), 0, &space->get_physics_system());
 	contact_filter.owner = this;
 	character->SetListener(&contact_filter);
+	character->SetCharacterVsCharacterCollision(&solid);
 	slid_velocity = Vector3();
 	refresh_contacts();
 	return true;
 }
 
 void JoltCharacter3D::destroy() {
+	for (JoltCharacter3D *partner : solid_partners) {
+		partner->solid_holders.erase(this);
+	}
+	solid_partners.clear();
+	solid.mCharacters.clear();
+	for (JoltCharacter3D *holder : solid_holders) {
+		if (character != nullptr) {
+			holder->solid.Remove(character.GetPtr());
+		}
+		holder->solid_partners.erase(this);
+	}
+	solid_holders.clear();
 	character = nullptr;
 	space_rid = RID();
 	slid_velocity = Vector3();
@@ -354,7 +384,7 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 	if (p_step_up > 0 && supported && desired_length > 0) {
 		const JPH::Vec3 direction = desired / desired_length;
 		const float achieved = MAX(0.0f, JPH::Vec3(character->GetPosition() - start).Dot(direction));
-		if (achieved + 1.0e-4f < desired_length) {
+		if (achieved + 1.0e-4f < desired_length && !_blocked_by_character(direction)) {
 			JPH::Vec3 face;
 			const JPH::Vec3 forward = direction * MAX(walk_stairs_min_step_forward, desired_length - achieved);
 			if (_blocked_by_steep(direction, face)) {
@@ -569,6 +599,33 @@ void JoltCharacter3D::set_collision_mask(uint32_t p_mask) {
 	}
 }
 
+void JoltCharacter3D::set_solid_with(const Ref<JoltCharacter3D> &p_other, bool p_solid) {
+	ERR_FAIL_COND(p_other.is_null() || p_other.ptr() == this);
+	JoltCharacter3D *other = p_other.ptr();
+	const bool known = solid_partners.has(other);
+	if (p_solid == known) {
+		return;
+	}
+	if (!p_solid) {
+		solid_partners.erase(other);
+		other->solid_holders.erase(this);
+		if (other->character != nullptr) {
+			solid.Remove(other->character.GetPtr());
+		}
+		return;
+	}
+	ERR_FAIL_NULL_MSG(character, "A Jolt character is solid with others once it's created.");
+	ERR_FAIL_NULL_MSG(other->character, "A Jolt character is solid only with a created one.");
+	ERR_FAIL_COND_MSG(other->space_rid != space_rid, "A Jolt character is solid only with one in its own space.");
+	solid_partners.push_back(other);
+	other->solid_holders.push_back(this);
+	solid.Add(other->character.GetPtr());
+}
+
+bool JoltCharacter3D::is_solid_with(const Ref<JoltCharacter3D> &p_other) const {
+	return p_other.is_valid() && solid_partners.has(p_other.ptr());
+}
+
 void JoltCharacter3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create", "space", "position", "size", "center", "convex_radius"), &JoltCharacter3D::create);
 	ClassDB::bind_method(D_METHOD("destroy"), &JoltCharacter3D::destroy);
@@ -596,6 +653,8 @@ void JoltCharacter3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_ground_face"), &JoltCharacter3D::get_ground_face);
 
 	ClassDB::bind_method(D_METHOD("get_contacts"), &JoltCharacter3D::get_contacts);
+	ClassDB::bind_method(D_METHOD("set_solid_with", "other", "solid"), &JoltCharacter3D::set_solid_with);
+	ClassDB::bind_method(D_METHOD("is_solid_with", "other"), &JoltCharacter3D::is_solid_with);
 
 	ClassDB::bind_method(D_METHOD("save_state"), &JoltCharacter3D::save_state);
 	ClassDB::bind_method(D_METHOD("restore_state", "state"), &JoltCharacter3D::restore_state);

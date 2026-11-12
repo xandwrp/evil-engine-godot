@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/object/ref_counted.h"
+#include "core/templates/local_vector.h"
 #include "core/templates/rid.h"
 #include "core/variant/binder_common.h"
 #include "core/variant/typed_array.h"
@@ -59,6 +60,8 @@ private:
 		bool OnContactValidate(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact) override;
 		void OnContactAdded(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
 		void OnContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
+		void OnCharacterContactAdded(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
+		void OnCharacterContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
 	};
 
 	static constexpr float FLOOR_LIP_TOLERANCE = 0.01f;
@@ -67,6 +70,9 @@ private:
 
 	JPH::Ref<JPH::CharacterVirtual> character;
 	ContactFilter contact_filter;
+	JPH::CharacterVsCharacterCollisionSimple solid;
+	LocalVector<JoltCharacter3D *> solid_partners;
+	LocalVector<JoltCharacter3D *> solid_holders;
 	RID space_rid;
 	JPH::ObjectLayer object_layer = 0;
 
@@ -89,6 +95,7 @@ private:
 	JoltSpace3D *_get_space() const;
 	JPH::ShapeRefC _make_box(const Vector3 &p_size, const Vector3 &p_center, float p_convex_radius) const;
 	bool _blocked_by_steep(const JPH::Vec3 &p_direction, JPH::Vec3 &r_normal) const;
+	bool _blocked_by_character(const JPH::Vec3 &p_direction) const;
 	bool _is_floor_lip(const JPH::CharacterContact &p_contact) const;
 	static bool _pushes_toward(const JPH::CharacterContact &p_contact);
 	static Vector3 _follow_velocity(const JPH::CharacterContact &p_contact);
@@ -131,6 +138,9 @@ public:
 	int get_ground_face() const;
 
 	TypedArray<Dictionary> get_contacts() const;
+
+	void set_solid_with(const Ref<JoltCharacter3D> &p_other, bool p_solid);
+	bool is_solid_with(const Ref<JoltCharacter3D> &p_other) const;
 
 	PackedByteArray save_state() const;
 	bool restore_state(const PackedByteArray &p_state);
