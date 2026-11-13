@@ -44,6 +44,49 @@ class JoltSpace3D;
 class PhysicsServer3DRenderingServerHandler;
 
 class JoltSoftBody3D final : public JoltObject3D {
+public:
+	struct ClothSettings {
+		float modulus = 2000.0f;
+		float poisson = 0.3f;
+		float bend = 5.0e-5f;
+		float tether_slack = 0.01f;
+		float damping = 0.05f;
+		float friction = 0.5f;
+		float bounce = 0.0f;
+		float thickness = 0.005f;
+		int iterations = 10;
+		float gravity_factor = 1.0f;
+		float skin_multiplier = 1.0f;
+		bool skin_constraints = true;
+		bool update_position = true;
+		bool double_sided = true;
+	};
+
+private:
+	struct Cloth {
+		Transform3D placement;
+		Basis bake;
+		LocalVector<Vector3> positions;
+		LocalVector<JPH::uint32> faces;
+		LocalVector<float> masses;
+		LocalVector<int> bones;
+		LocalVector<float> weights;
+		LocalVector<float> max_distances;
+		LocalVector<float> back_stops;
+		LocalVector<Transform3D> binds;
+		float back_stop_radius = 0.0f;
+		float rest_volume = 0.0f;
+		float built_slack = 0.0f;
+
+		LocalVector<Vector2> edge_terms;
+		LocalVector<float> bend_terms;
+		LocalVector<float> tether_lengths;
+
+		ClothSettings settings;
+	};
+
+	Cloth *cloth = nullptr;
+
 	HashSet<int> pinned_vertices;
 
 	LocalVector<int> mesh_to_physics;
@@ -76,6 +119,12 @@ class JoltSoftBody3D final : public JoltObject3D {
 	virtual void _add_to_space() override;
 
 	JPH::SoftBodySharedSettings *_create_shared_settings();
+	JPH::SoftBodySharedSettings *_create_cloth_settings();
+
+	Vector3 _compute_gravity() const;
+	void _update_cloth_mass();
+	void _update_cloth_compliance();
+	void _update_cloth_settings();
 
 	void _apply_environmental_forces(float p_step);
 
@@ -106,6 +155,20 @@ class JoltSoftBody3D final : public JoltObject3D {
 public:
 	JoltSoftBody3D();
 	virtual ~JoltSoftBody3D() override;
+
+	PackedInt32Array build(const Transform3D &p_frame, const PackedVector3Array &p_positions, const PackedInt32Array &p_indices, const Dictionary &p_settings);
+	bool is_built() const { return cloth != nullptr; }
+
+	void set_cloth_settings(const Dictionary &p_settings);
+	Dictionary get_cloth_settings() const;
+
+	PackedVector3Array get_vertices() const;
+	PackedVector3Array get_velocities() const;
+	float get_volume() const;
+	float get_rest_volume() const;
+
+	PackedByteArray save_state() const;
+	bool restore_state(const PackedByteArray &p_state);
 
 	void add_collision_exception(const RID &p_excepted_body);
 	void remove_collision_exception(const RID &p_excepted_body);

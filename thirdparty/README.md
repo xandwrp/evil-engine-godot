@@ -528,6 +528,7 @@ Files extracted from upstream source:
 Patches:
 
 - `0001-backport-upstream-commit-63f2f57.patch` (GH-121974)
+- `0002-soft-body-gravity-air-and-gas.patch` (Evil Engine)
 
 
 ## libbacktrace

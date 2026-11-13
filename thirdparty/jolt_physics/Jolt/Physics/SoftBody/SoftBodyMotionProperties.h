@@ -81,6 +81,12 @@ public:
 	float								GetPressure() const							{ return mPressure; }
 	void								SetPressure(float inPressure)				{ mPressure = inPressure; }
 
+	/// Gravity in world space that this body falls under in place of the physics system's, scaled by the gravity factor like the system's
+	bool								HasGravityOverride() const					{ return mHasGravityOverride; }
+	Vec3								GetGravityOverride() const					{ return mGravityOverride; }
+	void								SetGravityOverride(Vec3Arg inGravity)		{ mGravityOverride = inGravity; mHasGravityOverride = true; }
+	void								ClearGravityOverride()						{ mHasGravityOverride = false; }
+
 	/// Update the position of the body while simulating (set to false for something that is attached to the static world)
 	bool								GetUpdatePosition() const					{ return mUpdatePosition; }
 	void								SetUpdatePosition(bool inUpdatePosition)	{ mUpdatePosition = inUpdatePosition; }
@@ -324,6 +330,8 @@ private:
 	uint32								mNumIterations;								///< Number of solver iterations
 	uint								mNumSensors;								///< Workaround for TSAN false positive: store mCollidingSensors.size() in a separate variable.
 	float								mPressure;									///< n * R * T, amount of substance * ideal gas constant * absolute temperature, see https://en.wikipedia.org/wiki/Pressure
+	Vec3								mGravityOverride = Vec3::sZero();			///< Gravity in world space used instead of the physics system's when mHasGravityOverride is set
+	bool								mHasGravityOverride = false;				///< If mGravityOverride replaces the physics system's gravity
 	float								mSkinnedMaxDistanceMultiplier = 1.0f;		///< Multiplier applied to Skinned::mMaxDistance to allow tightening or loosening of the skin constraints
 	float								mVertexRadius = 0.0f;						///< How big the particles are, can be used to push the vertices a little bit away from the surface of other bodies to prevent z-fighting
 	bool								mUpdatePosition;							///< Update the position of the body while simulating (set to false for something that is attached to the static world)

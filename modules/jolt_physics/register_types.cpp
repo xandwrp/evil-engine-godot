@@ -35,6 +35,7 @@
 #include "jolt_project_settings.h"
 #include "joints/jolt_joints_3d.h"
 #include "objects/jolt_character_3d.h"
+#include "objects/jolt_soft_bodies_3d.h"
 
 #include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
@@ -62,6 +63,7 @@ void initialize_jolt_physics_module(ModuleInitializationLevel p_level) {
 	jolt_initialize();
 	GDREGISTER_CLASS(JoltCharacter3D);
 	GDREGISTER_ABSTRACT_CLASS(JoltJoints3D);
+	GDREGISTER_ABSTRACT_CLASS(JoltSoftBodies3D);
 	PhysicsServer3DManager::get_singleton()->register_server(PhysicsServer3DManager::JOLT_PHYSICS_NAME, callable_mp_static(&create_jolt_physics_server));
 	JoltProjectSettings::register_settings();
 }

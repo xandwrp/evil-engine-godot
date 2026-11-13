@@ -946,7 +946,7 @@ void SoftBodyMotionProperties::InitializeUpdateContext(float inDeltaTime, Body &
 
 	// Convert gravity to local space
 	ioContext.mCenterOfMassTransform = inSoftBody.GetCenterOfMassTransform();
-	ioContext.mGravity = ioContext.mCenterOfMassTransform.Multiply3x3Transposed(GetGravityFactor() * inSystem.GetGravity());
+	ioContext.mGravity = ioContext.mCenterOfMassTransform.Multiply3x3Transposed(GetGravityFactor() * (mHasGravityOverride? mGravityOverride : inSystem.GetGravity()));
 
 	// Calculate delta time for sub step
 	ioContext.mDeltaTime = inDeltaTime;

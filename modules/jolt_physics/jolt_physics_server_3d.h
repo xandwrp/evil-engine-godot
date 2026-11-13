@@ -456,6 +456,7 @@ public:
 	JoltBody3D *get_body(RID p_rid) const { return body_owner.get_or_null(p_rid); }
 	JoltShape3D *get_shape(RID p_rid) const { return shape_owner.get_or_null(p_rid); }
 	JoltJoint3D *get_joint(RID p_rid) const { return joint_owner.get_or_null(p_rid); }
+	JoltSoftBody3D *get_soft_body(RID p_rid) const { return soft_body_owner.get_or_null(p_rid); }
 
 #ifdef DEBUG_ENABLED
 	void dump_debug_snapshots(const String &p_dir);

@@ -43,6 +43,7 @@
 #include "servers/rendering/rendering_server.h"
 
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
 
 namespace {
 
@@ -59,6 +60,31 @@ void pin_vertices(const JoltSoftBody3D &p_body, const HashSet<int> &p_pinned_ver
 
 		r_physics_vertices[physics_index].mInvMass = 0.0f;
 	}
+}
+
+JPH::uint64 edge_key(JPH::uint32 p_a, JPH::uint32 p_b) {
+	return p_a < p_b ? (JPH::uint64(p_a) << 32) | p_b : (JPH::uint64(p_b) << 32) | p_a;
+}
+
+float triangle_area(const Vector3 &p_a, const Vector3 &p_b, const Vector3 &p_c) {
+	return 0.5f * (float)(p_b - p_a).cross(p_c - p_a).length();
+}
+
+void read_cloth_settings(const Dictionary &p_settings, JoltSoftBody3D::ClothSettings &r_settings) {
+	r_settings.modulus = MAX((float)p_settings.get("modulus", r_settings.modulus), 0.0f);
+	r_settings.poisson = CLAMP((float)p_settings.get("poisson", r_settings.poisson), 0.0f, 0.49f);
+	r_settings.bend = MAX((float)p_settings.get("bend", r_settings.bend), 0.0f);
+	r_settings.tether_slack = p_settings.get("tether_slack", r_settings.tether_slack);
+	r_settings.damping = MAX((float)p_settings.get("damping", r_settings.damping), 0.0f);
+	r_settings.friction = MAX((float)p_settings.get("friction", r_settings.friction), 0.0f);
+	r_settings.bounce = CLAMP((float)p_settings.get("bounce", r_settings.bounce), 0.0f, 1.0f);
+	r_settings.thickness = MAX((float)p_settings.get("thickness", r_settings.thickness), 0.0f);
+	r_settings.iterations = MAX((int)p_settings.get("iterations", r_settings.iterations), 1);
+	r_settings.gravity_factor = p_settings.get("gravity_factor", r_settings.gravity_factor);
+	r_settings.skin_multiplier = MAX((float)p_settings.get("skin_multiplier", r_settings.skin_multiplier), 0.0f);
+	r_settings.skin_constraints = p_settings.get("skin_constraints", r_settings.skin_constraints);
+	r_settings.update_position = p_settings.get("update_position", r_settings.update_position);
+	r_settings.double_sided = p_settings.get("double_sided", r_settings.double_sided);
 }
 
 } // namespace
@@ -88,6 +114,13 @@ void JoltSoftBody3D::_space_changing() {
 void JoltSoftBody3D::_space_changed() {
 	JoltObject3D::_space_changed();
 
+	if (cloth != nullptr) {
+		_update_cloth_mass();
+		_update_cloth_settings();
+		_update_group_filter();
+		return;
+	}
+
 	_update_mass();
 	_update_pressure();
 	_update_damping();
@@ -96,18 +129,24 @@ void JoltSoftBody3D::_space_changed() {
 }
 
 void JoltSoftBody3D::_add_to_space() {
-	if (unlikely(space == nullptr || !mesh.is_valid())) {
+	if (unlikely(space == nullptr || (cloth == nullptr && !mesh.is_valid()))) {
 		return;
 	}
 
-	JPH::SoftBodySharedSettings *shared_settings = _create_shared_settings();
-	ERR_FAIL_NULL(shared_settings);
+	JPH::SoftBodySharedSettings *new_shared_settings = cloth != nullptr ? _create_cloth_settings() : _create_shared_settings();
+	ERR_FAIL_NULL(new_shared_settings);
+
+	if (cloth != nullptr) {
+		jolt_settings->mPosition = to_jolt_r(cloth->placement.origin);
+		jolt_settings->mRotation = to_jolt(cloth->placement.basis);
+		jolt_settings->mPressure = 0.0f;
+	}
 
 	JPH::CollisionGroup::GroupID group_id = 0;
 	JPH::CollisionGroup::SubGroupID sub_group_id = 0;
 	JoltGroupFilter::encode_object(this, group_id, sub_group_id);
 
-	jolt_settings->mSettings = shared_settings;
+	jolt_settings->mSettings = new_shared_settings;
 	jolt_settings->mUserData = reinterpret_cast<JPH::uint64>(this);
 	jolt_settings->mObjectLayer = _get_object_layer();
 	jolt_settings->mCollisionGroup = JPH::CollisionGroup(nullptr, group_id, sub_group_id);
@@ -207,30 +246,40 @@ JPH::SoftBodySharedSettings *JoltSoftBody3D::_create_shared_settings() {
 	return settings;
 }
 
+Vector3 JoltSoftBody3D::_compute_gravity() const {
+	const Vector3 com_position = to_godot(jolt_body->GetCenterOfMassPosition());
+
+	bool gravity_done = false;
+	Vector3 gravity;
+	for (JoltArea3D *area : areas) {
+		gravity_done = JoltArea3D::apply_override(gravity, area->get_gravity_mode(), [&]() {
+			return area->compute_gravity(com_position);
+		});
+
+		if (gravity_done) {
+			break;
+		}
+	}
+
+	if (!gravity_done) {
+		gravity += space->get_default_area()->compute_gravity(com_position);
+	}
+
+	return gravity;
+}
+
 void JoltSoftBody3D::_apply_environmental_forces(float p_step) {
 	// Get approximation of the center of the soft body.
 	Vector3 com_position = to_godot(jolt_body->GetCenterOfMassPosition());
 
-	// Calculate gravity and which areas affect the soft body through wind.
-	bool gravity_done = false;
-	Vector3 gravity;
 	LocalVector<JoltArea3D *> wind_areas;
 	for (JoltArea3D *area : areas) {
-		if (!gravity_done) {
-			gravity_done = JoltArea3D::apply_override(gravity, area->get_gravity_mode(), [&]() {
-				return area->compute_gravity(com_position);
-			});
-		}
-
 		if (area->get_wind_pressure() > CMP_EPSILON) {
 			wind_areas.push_back(area);
 		}
 	}
 
-	// Add default gravity.
-	if (!gravity_done) {
-		gravity += space->get_default_area()->compute_gravity(com_position);
-	}
+	const Vector3 gravity = _compute_gravity();
 
 	// Apply gravity to soft body. Note that this only works so long as vertices have uniform mass (excluding pinned vertices).
 	jolt_body->AddForce(to_jolt(gravity) * mass);
@@ -289,6 +338,11 @@ void JoltSoftBody3D::_apply_environmental_forces(float p_step) {
 }
 
 void JoltSoftBody3D::_update_mass() {
+	if (cloth != nullptr) {
+		_update_cloth_mass();
+		return;
+	}
+
 	if (!in_space()) {
 		return;
 	}
@@ -306,6 +360,10 @@ void JoltSoftBody3D::_update_mass() {
 }
 
 void JoltSoftBody3D::_update_pressure() {
+	if (cloth != nullptr) {
+		return;
+	}
+
 	if (!in_space()) {
 		jolt_settings->mPressure = pressure;
 		return;
@@ -316,6 +374,10 @@ void JoltSoftBody3D::_update_pressure() {
 }
 
 void JoltSoftBody3D::_update_damping() {
+	if (cloth != nullptr) {
+		return;
+	}
+
 	if (!in_space()) {
 		jolt_settings->mLinearDamping = linear_damping;
 		return;
@@ -326,6 +388,10 @@ void JoltSoftBody3D::_update_damping() {
 }
 
 void JoltSoftBody3D::_update_simulation_precision() {
+	if (cloth != nullptr) {
+		return;
+	}
+
 	if (!in_space()) {
 		jolt_settings->mNumIterations = (JPH::uint32)simulation_precision;
 		return;
@@ -410,6 +476,18 @@ void JoltSoftBody3D::_simulation_precision_changed() {
 }
 
 void JoltSoftBody3D::_mass_changed() {
+	if (cloth != nullptr) {
+		float total = 0.0f;
+		for (float vertex_mass : cloth->masses) {
+			total += vertex_mass;
+		}
+		if (total > 0.0f) {
+			for (float &vertex_mass : cloth->masses) {
+				vertex_mass *= mass / total;
+			}
+		}
+	}
+
 	_update_mass();
 	_update_compliance(compliance_step);
 	wake_up();
@@ -473,6 +551,519 @@ JoltSoftBody3D::~JoltSoftBody3D() {
 		delete jolt_settings;
 		jolt_settings = nullptr;
 	}
+
+	if (cloth != nullptr) {
+		memdelete(cloth);
+		cloth = nullptr;
+	}
+}
+
+JPH::SoftBodySharedSettings *JoltSoftBody3D::_create_cloth_settings() {
+	const ClothSettings &cs = cloth->settings;
+	const uint32_t vertex_count = cloth->positions.size();
+
+	JPH::SoftBodySharedSettings *settings = new JPH::SoftBodySharedSettings();
+
+	settings->mVertices.resize(vertex_count);
+	for (uint32_t i = 0; i < vertex_count; ++i) {
+		JPH::SoftBodySharedSettings::Vertex &vertex = settings->mVertices[i];
+		const Vector3 &position = cloth->positions[i];
+		vertex.mPosition = JPH::Float3((float)position.x, (float)position.y, (float)position.z);
+		vertex.mVelocity = JPH::Float3(0.0f, 0.0f, 0.0f);
+		const bool skinned = !cloth->weights.is_empty() && cloth->weights[i * 4] > 0.0f;
+		const bool kinematic = skinned && cloth->max_distances[i] <= 0.0f;
+		vertex.mInvMass = (cloth->masses[i] > 0.0f && !kinematic) ? 1.0f / cloth->masses[i] : 0.0f;
+	}
+
+	HashSet<JPH::uint64> face_edges;
+	for (uint32_t f = 0; f < cloth->faces.size(); f += 3) {
+		const JPH::uint32 a = cloth->faces[f];
+		const JPH::uint32 b = cloth->faces[f + 1];
+		const JPH::uint32 c = cloth->faces[f + 2];
+		settings->mFaces.emplace_back(a, b, c);
+		face_edges.insert(edge_key(a, b));
+		face_edges.insert(edge_key(b, c));
+		face_edges.insert(edge_key(c, a));
+	}
+
+	const bool tethered = cs.tether_slack >= 0.0f;
+	const JPH::SoftBodySharedSettings::VertexAttributes attributes(0.0f, 0.0f, 0.0f, tethered ? JPH::SoftBodySharedSettings::ELRAType::GeodesicDistance : JPH::SoftBodySharedSettings::ELRAType::None, 1.0f + MAX(cs.tether_slack, 0.0f));
+	settings->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Dihedral);
+	cloth->built_slack = MAX(cs.tether_slack, 0.0f);
+
+	JPH::Array<JPH::SoftBodySharedSettings::Edge> &edges = settings->mEdgeConstraints;
+	JPH::uint kept = 0;
+	for (const JPH::SoftBodySharedSettings::Edge &edge : edges) {
+		if (face_edges.has(edge_key(edge.mVertex[0], edge.mVertex[1]))) {
+			edges[kept++] = edge;
+		}
+	}
+	edges.resize(kept);
+
+	if (!cloth->weights.is_empty()) {
+		const Transform3D unbake(cloth->bake.inverse());
+		for (uint32_t j = 0; j < cloth->binds.size(); ++j) {
+			settings->mInvBindMatrices.emplace_back(j, to_jolt(cloth->binds[j] * unbake));
+		}
+
+		for (uint32_t i = 0; i < vertex_count; ++i) {
+			if (cloth->weights[i * 4] <= 0.0f) {
+				continue;
+			}
+
+			JPH::SoftBodySharedSettings::Skinned skinned(i, MAX(cloth->max_distances[i], 0.0f), cloth->back_stops[i], cloth->back_stop_radius);
+			for (int k = 0; k < 4; ++k) {
+				skinned.mWeights[k] = JPH::SoftBodySharedSettings::SkinWeight((JPH::uint32)cloth->bones[i * 4 + k], cloth->weights[i * 4 + k]);
+			}
+			settings->mSkinnedConstraints.push_back(skinned);
+		}
+
+		settings->CalculateSkinnedConstraintNormals();
+	}
+
+	settings->Optimize();
+
+	HashMap<JPH::uint64, Vector2> terms;
+	for (uint32_t f = 0; f < cloth->faces.size(); f += 3) {
+		const JPH::uint32 corner[3] = { cloth->faces[f], cloth->faces[f + 1], cloth->faces[f + 2] };
+		const float area = triangle_area(cloth->positions[corner[0]], cloth->positions[corner[1]], cloth->positions[corner[2]]);
+		if (area <= 0.0f) {
+			continue;
+		}
+
+		for (int k = 0; k < 3; ++k) {
+			const Vector3 &p0 = cloth->positions[corner[k]];
+			const Vector3 &p1 = cloth->positions[corner[(k + 1) % 3]];
+			const Vector3 &opposite = cloth->positions[corner[(k + 2) % 3]];
+			const float c_sq = (float)p0.distance_squared_to(p1);
+			const float a_sq = (float)p1.distance_squared_to(opposite);
+			const float b_sq = (float)p0.distance_squared_to(opposite);
+
+			Vector2 &term = terms[edge_key(corner[k], corner[(k + 1) % 3])];
+			term.x += area / c_sq;
+			term.y += (a_sq + b_sq - c_sq) / (8.0f * area);
+		}
+	}
+
+	cloth->edge_terms.resize((uint32_t)edges.size());
+	for (uint32_t i = 0; i < cloth->edge_terms.size(); ++i) {
+		const Vector2 *term = terms.getptr(edge_key(edges[i].mVertex[0], edges[i].mVertex[1]));
+		cloth->edge_terms[i] = term != nullptr ? *term : Vector2();
+	}
+
+	cloth->bend_terms.resize((uint32_t)settings->mDihedralBendConstraints.size());
+	for (uint32_t i = 0; i < cloth->bend_terms.size(); ++i) {
+		const JPH::uint32 *v = settings->mDihedralBendConstraints[i].mVertex;
+		const Vector3 &e0 = cloth->positions[v[0]];
+		const Vector3 &e1 = cloth->positions[v[1]];
+		const float areas = triangle_area(e0, e1, cloth->positions[v[2]]) + triangle_area(e0, e1, cloth->positions[v[3]]);
+		cloth->bend_terms[i] = areas > 0.0f ? 3.0f * (float)e0.distance_squared_to(e1) / areas : 0.0f;
+	}
+
+	cloth->tether_lengths.resize((uint32_t)settings->mLRAConstraints.size());
+	for (uint32_t i = 0; i < cloth->tether_lengths.size(); ++i) {
+		cloth->tether_lengths[i] = settings->mLRAConstraints[i].mMaxDistance / (1.0f + cloth->built_slack);
+	}
+
+	shared_settings = settings;
+	_update_cloth_compliance();
+
+	return settings;
+}
+
+void JoltSoftBody3D::_update_cloth_compliance() {
+	if (cloth == nullptr || shared_settings == nullptr) {
+		return;
+	}
+
+	const ClothSettings &cs = cloth->settings;
+	const float shear = cs.modulus / (1.0f + cs.poisson);
+	const float bulk = cs.modulus * cs.poisson / (1.0f - cs.poisson * cs.poisson);
+
+	JPH::Array<JPH::SoftBodySharedSettings::Edge> &edges = shared_settings->mEdgeConstraints;
+	for (uint32_t i = 0; i < cloth->edge_terms.size(); ++i) {
+		const Vector2 &term = cloth->edge_terms[i];
+		const float stiffness = MAX(shear * term.x + bulk * term.y, 0.1f * shear * term.x);
+		edges[i].mCompliance = stiffness > 0.0f ? 1.0f / stiffness : FLT_MAX;
+	}
+
+	JPH::Array<JPH::SoftBodySharedSettings::DihedralBend> &bends = shared_settings->mDihedralBendConstraints;
+	for (uint32_t i = 0; i < cloth->bend_terms.size(); ++i) {
+		const float stiffness = cs.bend * cloth->bend_terms[i];
+		bends[i].mCompliance = stiffness > 0.0f ? 1.0f / stiffness : FLT_MAX;
+	}
+
+	JPH::Array<JPH::SoftBodySharedSettings::LRA> &tethers = shared_settings->mLRAConstraints;
+	for (uint32_t i = 0; i < cloth->tether_lengths.size(); ++i) {
+		tethers[i].mMaxDistance = cs.tether_slack >= 0.0f ? cloth->tether_lengths[i] * (1.0f + cs.tether_slack) : FLT_MAX;
+	}
+}
+
+void JoltSoftBody3D::_update_cloth_settings() {
+	const ClothSettings &cs = cloth->settings;
+
+	if (!in_space()) {
+		jolt_settings->mNumIterations = (JPH::uint32)cs.iterations;
+		jolt_settings->mLinearDamping = cs.damping;
+		jolt_settings->mFriction = cs.friction;
+		jolt_settings->mRestitution = cs.bounce;
+		jolt_settings->mVertexRadius = cs.thickness;
+		jolt_settings->mGravityFactor = cs.gravity_factor;
+		jolt_settings->mUpdatePosition = cs.update_position;
+		jolt_settings->mFacesDoubleSided = cs.double_sided;
+		return;
+	}
+
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	motion_properties.SetNumIterations((JPH::uint32)cs.iterations);
+	motion_properties.SetLinearDamping(cs.damping);
+	motion_properties.SetVertexRadius(cs.thickness);
+	motion_properties.SetGravityFactor(cs.gravity_factor);
+	motion_properties.SetUpdatePosition(cs.update_position);
+	motion_properties.SetFacesDoubleSided(cs.double_sided);
+	motion_properties.SetEnableSkinConstraints(cs.skin_constraints);
+	motion_properties.SetSkinnedMaxDistanceMultiplier(cs.skin_multiplier);
+	jolt_body->SetFriction(cs.friction);
+	jolt_body->SetRestitution(cs.bounce);
+}
+
+void JoltSoftBody3D::_update_cloth_mass() {
+	if (!in_space()) {
+		return;
+	}
+
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	JPH::Array<JPH::SoftBodyVertex> &physics_vertices = motion_properties.GetVertices();
+	ERR_FAIL_COND(physics_vertices.size() != cloth->masses.size());
+
+	for (uint32_t i = 0; i < cloth->masses.size(); ++i) {
+		const bool skinned = !cloth->weights.is_empty() && cloth->weights[i * 4] > 0.0f;
+		const bool kinematic = skinned && cloth->max_distances[i] <= 0.0f;
+		physics_vertices[i].mInvMass = (cloth->masses[i] > 0.0f && !kinematic) ? 1.0f / cloth->masses[i] : 0.0f;
+	}
+
+	pin_vertices(*this, pinned_vertices, mesh_to_physics, physics_vertices);
+}
+
+PackedInt32Array JoltSoftBody3D::build(const Transform3D &p_frame, const PackedVector3Array &p_positions, const PackedInt32Array &p_indices, const Dictionary &p_settings) {
+	ERR_FAIL_COND_V_MSG(p_indices.size() % 3 != 0, PackedInt32Array(), "A soft body's indices must come in threes.");
+
+	const int given_count = p_positions.size();
+	const real_t weld = MAX((real_t)(float)p_settings.get("weld", 0.0001f), (real_t)0.0);
+	const real_t cell = MAX(weld, (real_t)1.0e-6);
+
+	Cloth *built = memnew(Cloth);
+	if (cloth != nullptr) {
+		built->settings = cloth->settings;
+	}
+	read_cloth_settings(p_settings, built->settings);
+	built->placement = p_frame.orthonormalized();
+	built->bake = built->placement.basis.transposed() * p_frame.basis;
+
+	LocalVector<int> given_to_welded;
+	given_to_welded.resize(given_count);
+	LocalVector<Vector3> welded;
+	LocalVector<int> welded_first;
+	HashMap<Vector3i, LocalVector<int>> grid;
+
+	for (int i = 0; i < given_count; ++i) {
+		const Vector3 p = p_positions[i];
+		const Vector3i c((int)Math::floor(p.x / cell), (int)Math::floor(p.y / cell), (int)Math::floor(p.z / cell));
+		int found = -1;
+		for (int dx = -1; dx <= 1 && found < 0; ++dx) {
+			for (int dy = -1; dy <= 1 && found < 0; ++dy) {
+				for (int dz = -1; dz <= 1 && found < 0; ++dz) {
+					const LocalVector<int> *candidates = grid.getptr(c + Vector3i(dx, dy, dz));
+					if (candidates == nullptr) {
+						continue;
+					}
+					for (int j : *candidates) {
+						if (welded[j].distance_to(p) <= weld) {
+							found = j;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (found < 0) {
+			found = (int)welded.size();
+			welded.push_back(p);
+			welded_first.push_back(i);
+			grid[c].push_back(found);
+		}
+
+		given_to_welded[i] = found;
+	}
+
+	LocalVector<int> welded_to_final;
+	welded_to_final.resize(welded.size());
+	for (int &index : welded_to_final) {
+		index = -1;
+	}
+
+	LocalVector<int> final_first;
+	LocalVector<JPH::uint32> faces;
+	for (int t = 0; t < p_indices.size(); t += 3) {
+		int corner[3];
+		for (int k = 0; k < 3; ++k) {
+			const int given = p_indices[t + k];
+			ERR_FAIL_INDEX_V_MSG(given, given_count, PackedInt32Array(), vformat("Soft body index %d is out of bounds of its %d positions.", given, given_count));
+			corner[k] = given_to_welded[given];
+		}
+		if (corner[0] == corner[1] || corner[0] == corner[2] || corner[1] == corner[2]) {
+			continue;
+		}
+		if (triangle_area(built->bake.xform(welded[corner[0]]), built->bake.xform(welded[corner[1]]), built->bake.xform(welded[corner[2]])) < 1.0e-12f) {
+			continue;
+		}
+
+		for (int k = 2; k >= 0; --k) {
+			int &final_index = welded_to_final[corner[k]];
+			if (final_index < 0) {
+				final_index = (int)built->positions.size();
+				built->positions.push_back(built->bake.xform(welded[corner[k]]));
+				final_first.push_back(welded_first[corner[k]]);
+			}
+			faces.push_back((JPH::uint32)final_index);
+		}
+	}
+
+	if (faces.is_empty()) {
+		memdelete(built);
+		ERR_FAIL_V_MSG(PackedInt32Array(), "A soft body needs at least one triangle with an area.");
+	}
+
+	built->faces = faces;
+	const uint32_t vertex_count = built->positions.size();
+
+	PackedInt32Array given_to_final;
+	given_to_final.resize(given_count);
+	for (int i = 0; i < given_count; ++i) {
+		given_to_final.write[i] = welded_to_final[given_to_welded[i]];
+	}
+
+	built->masses.resize(vertex_count);
+	for (float &vertex_mass : built->masses) {
+		vertex_mass = 0.0f;
+	}
+
+	const PackedFloat32Array given_masses = p_settings.get("masses", PackedFloat32Array());
+	if (given_masses.size() == given_count) {
+		for (int i = 0; i < given_count; ++i) {
+			if (given_to_final[i] >= 0) {
+				built->masses[given_to_final[i]] += MAX(given_masses[i], 0.0f);
+			}
+		}
+	} else {
+		const float density = MAX((float)p_settings.get("density", 0.15f), 0.0f);
+		for (uint32_t f = 0; f < faces.size(); f += 3) {
+			const float third = density * triangle_area(built->positions[faces[f]], built->positions[faces[f + 1]], built->positions[faces[f + 2]]) / 3.0f;
+			built->masses[faces[f]] += third;
+			built->masses[faces[f + 1]] += third;
+			built->masses[faces[f + 2]] += third;
+		}
+	}
+
+	const PackedInt32Array bones = p_settings.get("bones", PackedInt32Array());
+	const PackedFloat32Array weights = p_settings.get("weights", PackedFloat32Array());
+	if (bones.size() == given_count * 4 && weights.size() == given_count * 4) {
+		const Array binds = p_settings.get("binds", Array());
+		for (int j = 0; j < binds.size(); ++j) {
+			built->binds.push_back(binds[j]);
+		}
+
+		const PackedFloat32Array max_distances = p_settings.get("max_distances", PackedFloat32Array());
+		const PackedFloat32Array back_stops = p_settings.get("back_stops", PackedFloat32Array());
+		built->back_stop_radius = MAX((float)p_settings.get("back_stop_radius", 40.0f), 0.0f);
+
+		built->bones.resize(vertex_count * 4);
+		built->weights.resize(vertex_count * 4);
+		built->max_distances.resize(vertex_count);
+		built->back_stops.resize(vertex_count);
+
+		for (uint32_t i = 0; i < vertex_count; ++i) {
+			const int given = final_first[i];
+
+			int order[4] = { 0, 1, 2, 3 };
+			for (int a = 0; a < 4; ++a) {
+				for (int b = a + 1; b < 4; ++b) {
+					if (weights[given * 4 + order[b]] > weights[given * 4 + order[a]]) {
+						SWAP(order[a], order[b]);
+					}
+				}
+			}
+
+			float total = 0.0f;
+			for (int k = 0; k < 4; ++k) {
+				const int bone = bones[given * 4 + k];
+				const float weight = weights[given * 4 + k];
+				if (weight > 0.0f && (bone < 0 || bone >= (int)built->binds.size())) {
+					const int bind_count = (int)built->binds.size();
+					memdelete(built);
+					ERR_FAIL_V_MSG(PackedInt32Array(), vformat("Soft body vertex %d is weighted to bone %d, past its %d binds.", given, bone, bind_count));
+				}
+				total += MAX(weight, 0.0f);
+			}
+
+			for (int k = 0; k < 4; ++k) {
+				const float weight = total > 0.0f ? MAX(weights[given * 4 + order[k]], 0.0f) / total : 0.0f;
+				built->bones[i * 4 + k] = weight > 0.0f ? bones[given * 4 + order[k]] : 0;
+				built->weights[i * 4 + k] = weight;
+			}
+
+			built->max_distances[i] = max_distances.size() == given_count ? max_distances[given] : 0.0f;
+			built->back_stops[i] = back_stops.size() == given_count ? back_stops[given] : FLT_MAX;
+		}
+	}
+
+	float six_volume = 0.0f;
+	for (uint32_t f = 0; f < faces.size(); f += 3) {
+		six_volume += (float)built->positions[faces[f]].cross(built->positions[faces[f + 1]]).dot(built->positions[faces[f + 2]]);
+	}
+	built->rest_volume = six_volume / 6.0f;
+
+	if (cloth != nullptr) {
+		memdelete(cloth);
+	}
+	cloth = built;
+
+	mesh = RID();
+	pinned_vertices.clear();
+	mesh_to_physics.resize(given_count);
+	for (int i = 0; i < given_count; ++i) {
+		mesh_to_physics[i] = given_to_final[i];
+	}
+
+	mass = 0.0f;
+	for (float vertex_mass : cloth->masses) {
+		mass += vertex_mass;
+	}
+
+	if (!in_space()) {
+		_update_cloth_settings();
+	}
+
+	_try_rebuild();
+
+	return given_to_final;
+}
+
+void JoltSoftBody3D::set_cloth_settings(const Dictionary &p_settings) {
+	ERR_FAIL_NULL_MSG(cloth, vformat("Soft body '%s' wasn't built from data, so it takes no cloth settings.", to_string()));
+
+	read_cloth_settings(p_settings, cloth->settings);
+
+	_update_cloth_compliance();
+	_update_cloth_settings();
+	wake_up();
+}
+
+Dictionary JoltSoftBody3D::get_cloth_settings() const {
+	ERR_FAIL_NULL_V_MSG(cloth, Dictionary(), vformat("Soft body '%s' wasn't built from data, so it has no cloth settings.", to_string()));
+
+	const ClothSettings &cs = cloth->settings;
+	Dictionary settings;
+	settings["modulus"] = cs.modulus;
+	settings["poisson"] = cs.poisson;
+	settings["bend"] = cs.bend;
+	settings["tether_slack"] = cs.tether_slack;
+	settings["damping"] = cs.damping;
+	settings["friction"] = cs.friction;
+	settings["bounce"] = cs.bounce;
+	settings["thickness"] = cs.thickness;
+	settings["iterations"] = cs.iterations;
+	settings["gravity_factor"] = cs.gravity_factor;
+	settings["skin_multiplier"] = cs.skin_multiplier;
+	settings["skin_constraints"] = cs.skin_constraints;
+	settings["update_position"] = cs.update_position;
+	settings["double_sided"] = cs.double_sided;
+	return settings;
+}
+
+PackedVector3Array JoltSoftBody3D::get_vertices() const {
+	ERR_FAIL_COND_V_MSG(!in_space(), PackedVector3Array(), vformat("Failed to read the vertices of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	const JPH::Array<JPH::SoftBodyVertex> &physics_vertices = motion_properties.GetVertices();
+	const JPH::RMat44 com = jolt_body->GetCenterOfMassTransform();
+
+	PackedVector3Array vertices;
+	vertices.resize((int)physics_vertices.size());
+	Vector3 *w = vertices.ptrw();
+	for (const JPH::SoftBodyVertex &vertex : physics_vertices) {
+		*w++ = to_godot(com * vertex.mPosition);
+	}
+	return vertices;
+}
+
+PackedVector3Array JoltSoftBody3D::get_velocities() const {
+	ERR_FAIL_COND_V_MSG(!in_space(), PackedVector3Array(), vformat("Failed to read the velocities of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	const JPH::Array<JPH::SoftBodyVertex> &physics_vertices = motion_properties.GetVertices();
+	const JPH::RMat44 com = jolt_body->GetCenterOfMassTransform();
+
+	PackedVector3Array velocities;
+	velocities.resize((int)physics_vertices.size());
+	Vector3 *w = velocities.ptrw();
+	for (const JPH::SoftBodyVertex &vertex : physics_vertices) {
+		*w++ = to_godot(com.Multiply3x3(vertex.mVelocity));
+	}
+	return velocities;
+}
+
+float JoltSoftBody3D::get_volume() const {
+	ERR_FAIL_COND_V_MSG(!in_space(), 0.0f, vformat("Failed to read the volume of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	return motion_properties.GetVolume();
+}
+
+float JoltSoftBody3D::get_rest_volume() const {
+	return cloth != nullptr ? cloth->rest_volume : 0.0f;
+}
+
+PackedByteArray JoltSoftBody3D::save_state() const {
+	ERR_FAIL_COND_V_MSG(!in_space(), PackedByteArray(), vformat("Failed to save the state of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+
+	JPH::StateRecorderImpl recorder;
+	recorder.Write(jolt_body->GetPosition());
+	recorder.Write(jolt_body->GetRotation());
+	motion_properties.SaveState(recorder);
+
+	const std::string data = recorder.GetData();
+	PackedByteArray state;
+	state.resize((int)data.size());
+	memcpy(state.ptrw(), data.data(), data.size());
+	return state;
+}
+
+bool JoltSoftBody3D::restore_state(const PackedByteArray &p_state) {
+	ERR_FAIL_COND_V_MSG(!in_space(), false, vformat("Failed to restore the state of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+
+	JPH::StateRecorderImpl recorder;
+	recorder.WriteBytes(p_state.ptr(), p_state.size());
+	recorder.Rewind();
+
+	JPH::RVec3 position;
+	JPH::Quat rotation;
+	recorder.Read(position);
+	recorder.Read(rotation);
+	motion_properties.RestoreState(recorder);
+
+	if (recorder.IsFailed()) {
+		return false;
+	}
+
+	space->get_body_iface().SetPositionAndRotation(jolt_body->GetID(), position, rotation, JPH::EActivation::DontActivate);
+	wake_up();
+	return true;
 }
 
 void JoltSoftBody3D::add_collision_exception(const RID &p_excepted_body) {
@@ -527,6 +1118,12 @@ Vector3 JoltSoftBody3D::get_velocity_at_position(const Vector3 &p_position) cons
 }
 
 void JoltSoftBody3D::pre_step(float p_step) {
+	if (cloth != nullptr) {
+		JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+		motion_properties.SetGravityOverride(to_jolt(_compute_gravity()));
+		return;
+	}
+
 	if (p_step != compliance_step) {
 		_update_compliance(p_step);
 	}
@@ -540,6 +1137,12 @@ void JoltSoftBody3D::set_mesh(const RID &p_mesh) {
 	}
 
 	mesh = p_mesh;
+
+	if (cloth != nullptr) {
+		memdelete(cloth);
+		cloth = nullptr;
+	}
+
 	_mesh_changed();
 }
 
@@ -751,11 +1354,31 @@ void JoltSoftBody3D::set_state(PS3DE::BodyState p_state, const Variant &p_value)
 }
 
 Transform3D JoltSoftBody3D::get_transform() const {
+	if (cloth != nullptr) {
+		if (!in_space()) {
+			return cloth->placement;
+		}
+
+		return Transform3D(to_godot(jolt_body->GetRotation()), to_godot(jolt_body->GetPosition()));
+	}
+
 	// Since any transform gets baked into the vertices anyway we can just return identity here.
 	return Transform3D();
 }
 
 void JoltSoftBody3D::set_transform(const Transform3D &p_transform) {
+	if (cloth != nullptr) {
+		const Transform3D placement = p_transform.orthonormalized();
+		if (!in_space()) {
+			cloth->placement = placement;
+			return;
+		}
+
+		space->get_body_iface().SetPositionAndRotation(jolt_body->GetID(), to_jolt_r(placement.origin), to_jolt(placement.basis), JPH::EActivation::DontActivate);
+		_transform_changed();
+		return;
+	}
+
 	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to set transform for '%s'. Doing so without a physics space is not supported when using Jolt Physics. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	// For whatever reason this has to be interpreted as a relative global-space transform rather than an absolute one,
