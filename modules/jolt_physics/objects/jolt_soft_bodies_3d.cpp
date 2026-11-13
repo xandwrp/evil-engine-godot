@@ -114,6 +114,16 @@ Array JoltSoftBodies3D::get_contacts(const RID &p_soft_body) {
 	return soft_body != nullptr ? soft_body->get_contacts() : Array();
 }
 
+PackedByteArray JoltSoftBodies3D::write_vertices(const RID &p_soft_body, const Transform3D &p_frame, int64_t p_format) {
+	JoltSoftBody3D *soft_body = _get_built(p_soft_body);
+	return soft_body != nullptr ? soft_body->write_vertices(p_frame, (uint64_t)p_format) : PackedByteArray();
+}
+
+AABB JoltSoftBodies3D::get_local_bounds(const RID &p_soft_body, const Transform3D &p_frame) {
+	JoltSoftBody3D *soft_body = _get_soft_body(p_soft_body);
+	return soft_body != nullptr ? soft_body->get_local_bounds(p_frame) : AABB();
+}
+
 PackedByteArray JoltSoftBodies3D::save_state(const RID &p_soft_body) {
 	JoltSoftBody3D *soft_body = _get_soft_body(p_soft_body);
 	return soft_body != nullptr ? soft_body->save_state() : PackedByteArray();
@@ -143,6 +153,9 @@ void JoltSoftBodies3D::_bind_methods() {
 	ClassDB::bind_static_method(c, D_METHOD("update", "soft_body", "delta"), &JoltSoftBodies3D::update);
 
 	ClassDB::bind_static_method(c, D_METHOD("get_contacts", "soft_body"), &JoltSoftBodies3D::get_contacts);
+
+	ClassDB::bind_static_method(c, D_METHOD("write_vertices", "soft_body", "frame", "format"), &JoltSoftBodies3D::write_vertices);
+	ClassDB::bind_static_method(c, D_METHOD("get_local_bounds", "soft_body", "frame"), &JoltSoftBodies3D::get_local_bounds);
 
 	ClassDB::bind_static_method(c, D_METHOD("save_state", "soft_body"), &JoltSoftBodies3D::save_state);
 	ClassDB::bind_static_method(c, D_METHOD("restore_state", "soft_body", "state"), &JoltSoftBodies3D::restore_state);

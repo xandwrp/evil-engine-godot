@@ -288,6 +288,152 @@ void JoltSoftBody3D::_cloth_pre_step() {
 	cloth->contacts.clear();
 }
 
+PackedByteArray JoltSoftBody3D::write_vertices(const Transform3D &p_frame, uint64_t p_format) const {
+	ERR_FAIL_NULL_V_MSG(cloth, PackedByteArray(), vformat("Soft body '%s' wasn't built from data, so it has no vertices to write.", to_string()));
+	ERR_FAIL_COND_V_MSG(!in_space(), PackedByteArray(), vformat("Failed to write the vertices of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+	ERR_FAIL_COND_V_MSG(p_format & RSE::ARRAY_FLAG_COMPRESS_ATTRIBUTES, PackedByteArray(), "A soft body writes only into a surface whose attributes aren't compressed.");
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	const JPH::Array<JPH::SoftBodyVertex> &physics_vertices = motion_properties.GetVertices();
+	const uint32_t vertex_count = physics_vertices.size();
+	const Transform3D to_frame = p_frame.affine_inverse() * Transform3D(to_godot(jolt_body->GetRotation()), to_godot(jolt_body->GetCenterOfMassPosition()));
+
+	LocalVector<Vector3> current;
+	current.resize(vertex_count);
+	for (uint32_t i = 0; i < vertex_count; ++i) {
+		current[i] = to_frame.xform(to_godot(physics_vertices[i].mPosition));
+	}
+
+	const bool with_normals = p_format & RSE::ARRAY_FORMAT_NORMAL;
+	const bool with_tangents = p_format & RSE::ARRAY_FORMAT_TANGENT;
+
+	LocalVector<Vector3> normals;
+	LocalVector<Basis> turns;
+	normals.resize(vertex_count);
+	if (with_tangents) {
+		turns.resize(vertex_count);
+	}
+	for (uint32_t i = 0; i < vertex_count; ++i) {
+		normals[i] = Vector3();
+		if (with_tangents) {
+			turns[i] = Basis(Vector3(), Vector3(), Vector3());
+		}
+	}
+
+	const Basis unbake = cloth->bake.inverse();
+	for (uint32_t f = 0; f < cloth->faces.size(); f += 3) {
+		const JPH::uint32 a = cloth->faces[f];
+		const JPH::uint32 b = cloth->faces[f + 1];
+		const JPH::uint32 c = cloth->faces[f + 2];
+		const Vector3 cross = (current[b] - current[a]).cross(current[c] - current[a]);
+		normals[a] += cross;
+		normals[b] += cross;
+		normals[c] += cross;
+
+		if (with_tangents) {
+			const real_t length = cross.length();
+			const Vector3 rest_a = unbake.xform(cloth->positions[a]);
+			const Vector3 rest_cross = (unbake.xform(cloth->positions[b]) - rest_a).cross(unbake.xform(cloth->positions[c]) - rest_a);
+			const real_t rest_length = rest_cross.length();
+			if (length <= CMP_EPSILON || rest_length <= CMP_EPSILON) {
+				continue;
+			}
+
+			const Vector3 edge = (current[b] - current[a]).normalized();
+			const Vector3 normal = cross / length;
+			const Vector3 rest_edge = (unbake.xform(cloth->positions[b]) - rest_a).normalized();
+			const Vector3 rest_normal = rest_cross / rest_length;
+			const Basis now(edge, normal.cross(edge), normal);
+			const Basis then(rest_edge, rest_normal.cross(rest_edge), rest_normal);
+			const Basis turn = now * then.transposed();
+			for (JPH::uint32 corner : { a, b, c }) {
+				Basis &sum = turns[corner];
+				sum.rows[0] += turn.rows[0] * length;
+				sum.rows[1] += turn.rows[1] * length;
+				sum.rows[2] += turn.rows[2] * length;
+			}
+		}
+	}
+
+	for (Vector3 &normal : normals) {
+		normal = normal.length_squared() > 0.0 ? normal.normalized() : Vector3(0, 1, 0);
+	}
+
+	const int given_count = (int)cloth->given_positions.size();
+	PackedVector3Array drawn_positions;
+	PackedVector3Array drawn_normals;
+	PackedFloat32Array drawn_tangents;
+	drawn_positions.resize(given_count);
+	if (with_normals) {
+		drawn_normals.resize(given_count);
+	}
+	if (with_tangents) {
+		drawn_tangents.resize(given_count * 4);
+	}
+
+	for (int i = 0; i < given_count; ++i) {
+		const int welded = mesh_to_physics[i];
+		const Vector3 normal = welded >= 0 ? normals[welded] : Vector3(0, 1, 0);
+		drawn_positions.write[i] = welded >= 0 ? current[welded] : p_frame.affine_inverse().xform(cloth->placement.xform(cloth->bake.xform(cloth->given_positions[i])));
+		if (with_normals) {
+			drawn_normals.write[i] = normal;
+		}
+		if (with_tangents) {
+			Vector3 rest_tangent(1, 0, 0);
+			float sign = 1.0f;
+			if (!cloth->given_tangents.is_empty()) {
+				rest_tangent = Vector3(cloth->given_tangents[i * 4], cloth->given_tangents[i * 4 + 1], cloth->given_tangents[i * 4 + 2]);
+				sign = cloth->given_tangents[i * 4 + 3] < 0.0f ? -1.0f : 1.0f;
+			}
+			Vector3 tangent = welded >= 0 ? turns[welded].xform(rest_tangent) : rest_tangent;
+			tangent -= normal * normal.dot(tangent);
+			if (tangent.length_squared() <= CMP_EPSILON2) {
+				tangent = normal.cross(Math::abs(normal.x) < 0.9 ? Vector3(1, 0, 0) : Vector3(0, 1, 0));
+			}
+			tangent.normalize();
+			drawn_tangents.write[i * 4] = tangent.x;
+			drawn_tangents.write[i * 4 + 1] = tangent.y;
+			drawn_tangents.write[i * 4 + 2] = tangent.z;
+			drawn_tangents.write[i * 4 + 3] = sign;
+		}
+	}
+
+	Array arrays;
+	arrays.resize(RSE::ARRAY_MAX);
+	arrays[RSE::ARRAY_VERTEX] = drawn_positions;
+	if (with_normals) {
+		arrays[RSE::ARRAY_NORMAL] = drawn_normals;
+	}
+	if (with_tangents) {
+		arrays[RSE::ARRAY_TANGENT] = drawn_tangents;
+	}
+
+	RenderingServerTypes::SurfaceData surface;
+	const Error error = RenderingServer::get_singleton()->mesh_create_surface_data_from_arrays(&surface, RSE::PRIMITIVE_TRIANGLES, arrays);
+	ERR_FAIL_COND_V(error != OK, PackedByteArray());
+	return Vector<uint8_t>(surface.vertex_data);
+}
+
+AABB JoltSoftBody3D::get_local_bounds(const Transform3D &p_frame) const {
+	ERR_FAIL_COND_V_MSG(!in_space(), AABB(), vformat("Failed to read the bounds of '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+
+	const JPH::SoftBodyMotionProperties &motion_properties = static_cast<const JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	const Transform3D to_frame = p_frame.affine_inverse() * Transform3D(to_godot(jolt_body->GetRotation()), to_godot(jolt_body->GetCenterOfMassPosition()));
+
+	AABB bounds;
+	bool first = true;
+	for (const JPH::SoftBodyVertex &vertex : motion_properties.GetVertices()) {
+		const Vector3 p = to_frame.xform(to_godot(vertex.mPosition));
+		if (first) {
+			bounds = AABB(p, Vector3());
+			first = false;
+		} else {
+			bounds.expand_to(p);
+		}
+	}
+	return bounds.grow(motion_properties.GetVertexRadius());
+}
+
 void JoltSoftBody3D::record_contacts(const JPH::Body &p_jolt_body, const JPH::SoftBodyManifold &p_manifold) {
 	if (cloth == nullptr || space == nullptr) {
 		return;
@@ -1013,6 +1159,18 @@ PackedInt32Array JoltSoftBody3D::build(const Transform3D &p_frame, const PackedV
 
 			built->max_distances[i] = max_distances.size() == given_count ? max_distances[given] : 0.0f;
 			built->back_stops[i] = back_stops.size() == given_count ? back_stops[given] : FLT_MAX;
+		}
+	}
+
+	built->given_positions.resize(given_count);
+	for (int i = 0; i < given_count; ++i) {
+		built->given_positions[i] = p_positions[i];
+	}
+	const PackedFloat32Array tangents = p_settings.get("tangents", PackedFloat32Array());
+	if (tangents.size() == given_count * 4) {
+		built->given_tangents.resize(given_count * 4);
+		for (int i = 0; i < given_count * 4; ++i) {
+			built->given_tangents[i] = tangents[i];
 		}
 	}
 

@@ -105,6 +105,8 @@ private:
 
 		ClothSettings settings;
 		LocalVector<Transform3D> last_skin;
+		LocalVector<Vector3> given_positions;
+		LocalVector<float> given_tangents;
 		LocalVector<JPH::Vec3> start_velocities;
 		LocalVector<ClothContact> contacts;
 	};
@@ -192,6 +194,9 @@ public:
 	float get_volume() const;
 	float get_rest_volume() const;
 	float get_gas_pressure() const;
+
+	PackedByteArray write_vertices(const Transform3D &p_frame, uint64_t p_format) const;
+	AABB get_local_bounds(const Transform3D &p_frame) const;
 
 	void record_contacts(const JPH::Body &p_jolt_body, const JPH::SoftBodyManifold &p_manifold);
 	Array get_contacts() const;

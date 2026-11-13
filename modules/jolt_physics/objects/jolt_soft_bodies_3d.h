@@ -64,6 +64,9 @@ public:
 
 	static Array get_contacts(const RID &p_soft_body);
 
+	static PackedByteArray write_vertices(const RID &p_soft_body, const Transform3D &p_frame, int64_t p_format);
+	static AABB get_local_bounds(const RID &p_soft_body, const Transform3D &p_frame);
+
 	static PackedByteArray save_state(const RID &p_soft_body);
 	static bool restore_state(const RID &p_soft_body, const PackedByteArray &p_state);
 };
