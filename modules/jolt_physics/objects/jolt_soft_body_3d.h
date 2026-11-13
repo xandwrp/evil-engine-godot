@@ -55,6 +55,10 @@ class JoltSoftBody3D final : public JoltObject3D {
 
 	JPH::SoftBodyCreationSettings *jolt_settings = new JPH::SoftBodyCreationSettings();
 
+	JPH::Ref<JPH::SoftBodySharedSettings> shared_settings;
+	LocalVector<float> base_rest_lengths;
+	float compliance_step = 0.0f;
+
 	float mass = 1.0f;
 	float pressure = 0.0f;
 	float linear_damping = 0.01f;
@@ -80,6 +84,8 @@ class JoltSoftBody3D final : public JoltObject3D {
 	void _update_damping();
 	void _update_simulation_precision();
 	void _update_group_filter();
+	void _update_compliance(float p_step);
+	void _update_rest_lengths();
 
 	void _try_rebuild();
 
@@ -87,6 +93,8 @@ class JoltSoftBody3D final : public JoltObject3D {
 	void _simulation_precision_changed();
 	void _mass_changed();
 	void _pressure_changed();
+	void _stiffness_changed();
+	void _shrinking_changed();
 	void _damping_changed();
 	void _pins_changed();
 	void _vertices_changed();

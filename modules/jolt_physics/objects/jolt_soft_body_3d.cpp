@@ -81,6 +81,8 @@ void JoltSoftBody3D::_space_changing() {
 		jolt_settings->mSettings = nullptr;
 		jolt_settings->mVertexRadius = JoltProjectSettings::soft_body_point_radius;
 	}
+
+	shared_settings = nullptr;
 }
 
 void JoltSoftBody3D::_space_changed() {
@@ -189,43 +191,18 @@ JPH::SoftBodySharedSettings *JoltSoftBody3D::_create_shared_settings() {
 	// of the constraints a bit.
 	pin_vertices(*this, pinned_vertices, mesh_to_physics, physics_vertices);
 
-	// Since Godot's stiffness is input as a coefficient between 0 and 1, and Jolt uses actual stiffness for its
-	// edge constraints, we must map one to the other.
-	//
-	// Godot uses classic PBD edge constraints, which have a stiffness parameter k that is used in the position correction formula as follows:
-	// delta_x1 = -k * w1 / (w1 + w2) * (l - l0) / l * (x2 - x1)
-	// where k is the stiffness, w1 and w2 are the inverse masses of the two vertices, l is the current length of the edge = |x2 - x1|, l0 is the rest length of the edge, and x1 and x2 are the vertex positions.
-	//
-	// Note that the actual formula used in Godot physics seems to use an approximation of this which avoids calculating the square root:
-	// delta_x1 = -k * w1 / (w1 + w2) * (l^2 - l0^2) / (l^2 + l0^2) * (x2 - x1)
-	//
-	// Jolt uses XPBD which goes as follows:
-	// delta_x1 = -w1 / (w1 + w2 + compliance / dt^2) * (l - l0) / l * (x2 - x1)
-	// where compliance is the inverse of stiffness and dt is the timestep.
-	//
-	// We can derive Jolt's compliance from Godot's stiffness by evaluating:
-	// k * w1 / (w1 + w2) = w1 / (w1 + w2 + compliance / dt^2)
-	// which simplifies to:
-	// compliance = dt^2 * (1 / k - 1) * (w1 + w2)
-
-	// Assuming that the vertices have the same mass:
-	const float w1_plus_w2 = 2.0f * physics_vertices.size() / mass;
-
-	// Calculate time step of a single XPBD iteration
-	const float dt = 1.0f / Engine::get_singleton()->get_user_physics_ticks_per_second() / simulation_precision;
-
-	// Now calculate the compliance
-	const float inverse_stiffness = dt * dt * (1.0f / stiffness_coefficient - 1.0f) * w1_plus_w2;
-
 	JPH::SoftBodySharedSettings::VertexAttributes vertex_attrib;
-	vertex_attrib.mCompliance = vertex_attrib.mShearCompliance = inverse_stiffness;
-
 	settings->CreateConstraints(&vertex_attrib, 1, JPH::SoftBodySharedSettings::EBendType::None);
-	float multiplier = 1.0f - shrinking_factor;
-	for (JPH::SoftBodySharedSettings::Edge &e : settings->mEdgeConstraints) {
-		e.mRestLength *= multiplier;
-	}
 	settings->Optimize();
+
+	base_rest_lengths.resize((uint32_t)settings->mEdgeConstraints.size());
+	for (uint32_t i = 0; i < base_rest_lengths.size(); ++i) {
+		base_rest_lengths[i] = settings->mEdgeConstraints[i].mRestLength;
+	}
+
+	shared_settings = settings;
+	_update_rest_lengths();
+	_update_compliance(space->get_last_step() > 0.0f ? space->get_last_step() : 1.0f / Engine::get_singleton()->get_user_physics_ticks_per_second());
 
 	return settings;
 }
@@ -368,6 +345,54 @@ void JoltSoftBody3D::_update_group_filter() {
 	}
 }
 
+void JoltSoftBody3D::_update_compliance(float p_step) {
+	compliance_step = p_step;
+
+	if (shared_settings == nullptr || simulation_precision <= 0) {
+		return;
+	}
+
+	// Since Godot's stiffness is input as a coefficient between 0 and 1, and Jolt uses actual stiffness for its
+	// edge constraints, we must map one to the other.
+	//
+	// Godot uses classic PBD edge constraints, which have a stiffness parameter k that is used in the position correction formula as follows:
+	// delta_x1 = -k * w1 / (w1 + w2) * (l - l0) / l * (x2 - x1)
+	// where k is the stiffness, w1 and w2 are the inverse masses of the two vertices, l is the current length of the edge = |x2 - x1|, l0 is the rest length of the edge, and x1 and x2 are the vertex positions.
+	//
+	// Jolt uses XPBD which goes as follows:
+	// delta_x1 = -w1 / (w1 + w2 + compliance / dt^2) * (l - l0) / l * (x2 - x1)
+	// where compliance is the inverse of stiffness and dt is the timestep of one substep.
+	//
+	// We can derive Jolt's compliance from Godot's stiffness by evaluating:
+	// k * w1 / (w1 + w2) = w1 / (w1 + w2 + compliance / dt^2)
+	// which simplifies to:
+	// compliance = dt^2 * (1 / k - 1) * (w1 + w2)
+	//
+	// The substep is the step the space is actually given over the iteration count, so this is refreshed whenever that step changes.
+
+	const float w1_plus_w2 = 2.0f * shared_settings->mVertices.size() / mass;
+	const float dt = p_step / simulation_precision;
+	const float compliance = stiffness_coefficient > 0.0f ? dt * dt * (1.0f / stiffness_coefficient - 1.0f) * w1_plus_w2 : FLT_MAX;
+
+	for (JPH::SoftBodySharedSettings::Edge &edge : shared_settings->mEdgeConstraints) {
+		edge.mCompliance = compliance;
+	}
+}
+
+void JoltSoftBody3D::_update_rest_lengths() {
+	if (shared_settings == nullptr) {
+		return;
+	}
+
+	const float multiplier = 1.0f - shrinking_factor;
+	JPH::Array<JPH::SoftBodySharedSettings::Edge> &edges = shared_settings->mEdgeConstraints;
+	ERR_FAIL_COND(edges.size() != base_rest_lengths.size());
+
+	for (uint32_t i = 0; i < base_rest_lengths.size(); ++i) {
+		edges[i].mRestLength = base_rest_lengths[i] * multiplier;
+	}
+}
+
 void JoltSoftBody3D::_try_rebuild() {
 	if (space != nullptr) {
 		_reset_space();
@@ -379,11 +404,24 @@ void JoltSoftBody3D::_mesh_changed() {
 }
 
 void JoltSoftBody3D::_simulation_precision_changed() {
+	_update_simulation_precision();
+	_update_compliance(compliance_step);
 	wake_up();
 }
 
 void JoltSoftBody3D::_mass_changed() {
 	_update_mass();
+	_update_compliance(compliance_step);
+	wake_up();
+}
+
+void JoltSoftBody3D::_stiffness_changed() {
+	_update_compliance(compliance_step);
+	wake_up();
+}
+
+void JoltSoftBody3D::_shrinking_changed() {
+	_update_rest_lengths();
 	wake_up();
 }
 
@@ -489,6 +527,10 @@ Vector3 JoltSoftBody3D::get_velocity_at_position(const Vector3 &p_position) cons
 }
 
 void JoltSoftBody3D::pre_step(float p_step) {
+	if (p_step != compliance_step) {
+		_update_compliance(p_step);
+	}
+
 	_apply_environmental_forces(p_step);
 }
 
@@ -515,7 +557,7 @@ void JoltSoftBody3D::apply_vertex_impulse(int p_index, const Vector3 &p_impulse)
 	ERR_FAIL_INDEX(p_index, (int)mesh_to_physics.size());
 	const int physics_index = mesh_to_physics[p_index];
 	ERR_FAIL_COND_MSG(physics_index < 0, vformat("Soft body vertex %d was not used by a face and has been omitted for '%s'. No impulse can be applied.", p_index, to_string()));
-	ERR_FAIL_COND_MSG(pinned_vertices.has(physics_index), vformat("Failed to apply impulse to point at index %d for '%s'. Point was found to be pinned.", static_cast<int>(physics_index), to_string()));
+	ERR_FAIL_COND_MSG(pinned_vertices.has(p_index), vformat("Failed to apply impulse to point at index %d for '%s'. Point was found to be pinned.", p_index, to_string()));
 
 	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
 
@@ -609,7 +651,14 @@ float JoltSoftBody3D::get_stiffness_coefficient() const {
 }
 
 void JoltSoftBody3D::set_stiffness_coefficient(float p_coefficient) {
-	stiffness_coefficient = CLAMP(p_coefficient, 0.0f, 1.0f);
+	const float coefficient = CLAMP(p_coefficient, 0.0f, 1.0f);
+	if (unlikely(stiffness_coefficient == coefficient)) {
+		return;
+	}
+
+	stiffness_coefficient = coefficient;
+
+	_stiffness_changed();
 }
 
 float JoltSoftBody3D::get_shrinking_factor() const {
@@ -617,7 +666,13 @@ float JoltSoftBody3D::get_shrinking_factor() const {
 }
 
 void JoltSoftBody3D::set_shrinking_factor(float p_shrinking_factor) {
+	if (unlikely(shrinking_factor == p_shrinking_factor)) {
+		return;
+	}
+
 	shrinking_factor = p_shrinking_factor;
+
+	_shrinking_changed();
 }
 
 void JoltSoftBody3D::set_pressure(float p_pressure) {
@@ -851,7 +906,6 @@ bool JoltSoftBody3D::is_vertex_pinned(int p_index) const {
 	ERR_FAIL_COND_V_MSG(!in_space(), false, vformat("Failed retrieve pin status of point for '%s'. Doing so without a physics space is not supported when using Jolt Physics. If this relates to a node, try adding the node to a scene tree first.", to_string()));
 
 	ERR_FAIL_INDEX_V(p_index, (int)mesh_to_physics.size(), false);
-	const int physics_index = mesh_to_physics[p_index];
 
-	return pinned_vertices.has(physics_index);
+	return pinned_vertices.has(p_index);
 }
