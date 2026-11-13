@@ -279,6 +279,85 @@ Vector3 JoltSoftBody3D::_compute_gravity() const {
 void JoltSoftBody3D::_cloth_pre_step() {
 	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
 	motion_properties.SetGravityOverride(to_jolt(_compute_gravity()));
+
+	const JPH::Array<JPH::SoftBodyVertex> &physics_vertices = motion_properties.GetVertices();
+	cloth->start_velocities.resize((uint32_t)physics_vertices.size());
+	for (uint32_t i = 0; i < cloth->start_velocities.size(); ++i) {
+		cloth->start_velocities[i] = physics_vertices[i].mVelocity;
+	}
+	cloth->contacts.clear();
+}
+
+void JoltSoftBody3D::record_contacts(const JPH::Body &p_jolt_body, const JPH::SoftBodyManifold &p_manifold) {
+	if (cloth == nullptr || space == nullptr) {
+		return;
+	}
+
+	const JPH::RMat44 com = p_jolt_body.GetCenterOfMassTransform();
+	const JPH::Array<JPH::SoftBodyVertex> &physics_vertices = p_manifold.GetVertices();
+	const float vertex_radius = static_cast<const JPH::SoftBodyMotionProperties *>(p_jolt_body.GetMotionPropertiesUnchecked())->GetVertexRadius();
+
+	for (uint32_t i = 0; i < physics_vertices.size(); ++i) {
+		const JPH::SoftBodyVertex &vertex = physics_vertices[i];
+		if (!p_manifold.HasContact(vertex)) {
+			continue;
+		}
+
+		const JPH::BodyID other_id = p_manifold.GetContactBodyID(vertex);
+		const JPH::Body *other = space->try_get_jolt_body(other_id);
+		const JoltObject3D *other_object = other != nullptr ? reinterpret_cast<const JoltObject3D *>(other->GetUserData()) : nullptr;
+		if (other_object == nullptr) {
+			continue;
+		}
+
+		ClothContact *contact = nullptr;
+		for (ClothContact &existing : cloth->contacts) {
+			if (existing.body == other_object->get_rid()) {
+				contact = &existing;
+				break;
+			}
+		}
+		if (contact == nullptr) {
+			cloth->contacts.push_back(ClothContact());
+			contact = &cloth->contacts[cloth->contacts.size() - 1];
+			contact->body = other_object->get_rid();
+		}
+
+		const JPH::Vec3 out_of_other = vertex.mCollisionPlane.GetNormal();
+		const JPH::RVec3 point = com * p_manifold.GetLocalContactPoint(vertex);
+		const float depth = vertex_radius - vertex.mCollisionPlane.SignedDistance(vertex.mPosition);
+
+		const JPH::Vec3 start_velocity = i < cloth->start_velocities.size() ? cloth->start_velocities[i] : vertex.mVelocity;
+		const JPH::Vec3 other_velocity = com.Multiply3x3Transposed(other->GetPointVelocity(point));
+		const float speed = -(start_velocity - other_velocity).Dot(out_of_other);
+
+		contact->vertices++;
+		contact->speed = MAX(contact->speed, speed);
+		if (depth > contact->depth) {
+			contact->depth = depth;
+			contact->point = to_godot(point);
+			contact->normal = to_godot(com.Multiply3x3(out_of_other));
+		}
+	}
+}
+
+Array JoltSoftBody3D::get_contacts() const {
+	Array result;
+	if (cloth == nullptr) {
+		return result;
+	}
+
+	for (const ClothContact &contact : cloth->contacts) {
+		Dictionary entry;
+		entry["body"] = contact.body;
+		entry["point"] = contact.point;
+		entry["normal"] = contact.normal;
+		entry["depth"] = contact.depth;
+		entry["speed"] = contact.speed;
+		entry["vertices"] = contact.vertices;
+		result.push_back(entry);
+	}
+	return result;
 }
 
 void JoltSoftBody3D::_apply_environmental_forces(float p_step) {

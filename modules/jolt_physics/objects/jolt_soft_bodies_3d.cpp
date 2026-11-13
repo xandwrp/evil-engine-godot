@@ -109,6 +109,11 @@ float JoltSoftBodies3D::get_gas_pressure(const RID &p_soft_body) {
 	return soft_body != nullptr ? soft_body->get_gas_pressure() : 0.0f;
 }
 
+Array JoltSoftBodies3D::get_contacts(const RID &p_soft_body) {
+	JoltSoftBody3D *soft_body = _get_built(p_soft_body);
+	return soft_body != nullptr ? soft_body->get_contacts() : Array();
+}
+
 PackedByteArray JoltSoftBodies3D::save_state(const RID &p_soft_body) {
 	JoltSoftBody3D *soft_body = _get_soft_body(p_soft_body);
 	return soft_body != nullptr ? soft_body->save_state() : PackedByteArray();
@@ -136,6 +141,8 @@ void JoltSoftBodies3D::_bind_methods() {
 
 	ClassDB::bind_static_method(c, D_METHOD("skin", "soft_body", "frame", "joints", "hard"), &JoltSoftBodies3D::skin, DEFVAL(false));
 	ClassDB::bind_static_method(c, D_METHOD("update", "soft_body", "delta"), &JoltSoftBodies3D::update);
+
+	ClassDB::bind_static_method(c, D_METHOD("get_contacts", "soft_body"), &JoltSoftBodies3D::get_contacts);
 
 	ClassDB::bind_static_method(c, D_METHOD("save_state", "soft_body"), &JoltSoftBodies3D::save_state);
 	ClassDB::bind_static_method(c, D_METHOD("restore_state", "soft_body", "state"), &JoltSoftBodies3D::restore_state);

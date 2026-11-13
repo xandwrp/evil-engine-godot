@@ -62,6 +62,8 @@ public:
 	static void skin(const RID &p_soft_body, const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard);
 	static void update(const RID &p_soft_body, float p_delta);
 
+	static Array get_contacts(const RID &p_soft_body);
+
 	static PackedByteArray save_state(const RID &p_soft_body);
 	static bool restore_state(const RID &p_soft_body, const PackedByteArray &p_state);
 };

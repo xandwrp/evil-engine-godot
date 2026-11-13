@@ -38,6 +38,7 @@
 #include <Jolt/Jolt.h>
 
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyManifold.h>
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 class JoltArea3D;
@@ -72,6 +73,15 @@ public:
 	};
 
 private:
+	struct ClothContact {
+		RID body;
+		Vector3 point;
+		Vector3 normal;
+		float depth = -FLT_MAX;
+		float speed = 0.0f;
+		int vertices = 0;
+	};
+
 	struct Cloth {
 		Transform3D placement;
 		Basis bake;
@@ -95,6 +105,8 @@ private:
 
 		ClothSettings settings;
 		LocalVector<Transform3D> last_skin;
+		LocalVector<JPH::Vec3> start_velocities;
+		LocalVector<ClothContact> contacts;
 	};
 
 	Cloth *cloth = nullptr;
@@ -180,6 +192,9 @@ public:
 	float get_volume() const;
 	float get_rest_volume() const;
 	float get_gas_pressure() const;
+
+	void record_contacts(const JPH::Body &p_jolt_body, const JPH::SoftBodyManifold &p_manifold);
+	Array get_contacts() const;
 
 	void skin(const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard);
 	void update(float p_delta);
