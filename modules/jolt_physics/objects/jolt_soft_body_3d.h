@@ -62,6 +62,13 @@ public:
 		bool update_position = true;
 		bool double_sided = true;
 		bool manual = false;
+		float air_density = 1.225f;
+		Vector3 wind;
+		float drag = 1.0f;
+		float lift = 0.3f;
+		float pressure = 0.0f;
+		float ambient = 101325.0f;
+		bool sealed = false;
 	};
 
 private:
@@ -78,6 +85,8 @@ private:
 		LocalVector<Transform3D> binds;
 		float back_stop_radius = 0.0f;
 		float rest_volume = 0.0f;
+		float gas_amount = 0.0f;
+		float skin_pressure = 0.0f;
 		float built_slack = 0.0f;
 
 		LocalVector<Vector2> edge_terms;
@@ -170,6 +179,7 @@ public:
 	PackedVector3Array get_velocities() const;
 	float get_volume() const;
 	float get_rest_volume() const;
+	float get_gas_pressure() const;
 
 	void skin(const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard);
 	void update(float p_delta);

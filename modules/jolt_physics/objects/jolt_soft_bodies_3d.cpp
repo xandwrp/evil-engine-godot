@@ -104,6 +104,11 @@ void JoltSoftBodies3D::update(const RID &p_soft_body, float p_delta) {
 	}
 }
 
+float JoltSoftBodies3D::get_gas_pressure(const RID &p_soft_body) {
+	JoltSoftBody3D *soft_body = _get_built(p_soft_body);
+	return soft_body != nullptr ? soft_body->get_gas_pressure() : 0.0f;
+}
+
 PackedByteArray JoltSoftBodies3D::save_state(const RID &p_soft_body) {
 	JoltSoftBody3D *soft_body = _get_soft_body(p_soft_body);
 	return soft_body != nullptr ? soft_body->save_state() : PackedByteArray();
@@ -127,6 +132,7 @@ void JoltSoftBodies3D::_bind_methods() {
 	ClassDB::bind_static_method(c, D_METHOD("get_velocities", "soft_body"), &JoltSoftBodies3D::get_velocities);
 	ClassDB::bind_static_method(c, D_METHOD("get_volume", "soft_body"), &JoltSoftBodies3D::get_volume);
 	ClassDB::bind_static_method(c, D_METHOD("get_rest_volume", "soft_body"), &JoltSoftBodies3D::get_rest_volume);
+	ClassDB::bind_static_method(c, D_METHOD("get_gas_pressure", "soft_body"), &JoltSoftBodies3D::get_gas_pressure);
 
 	ClassDB::bind_static_method(c, D_METHOD("skin", "soft_body", "frame", "joints", "hard"), &JoltSoftBodies3D::skin, DEFVAL(false));
 	ClassDB::bind_static_method(c, D_METHOD("update", "soft_body", "delta"), &JoltSoftBodies3D::update);

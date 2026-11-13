@@ -322,6 +322,129 @@ void SoftBodyMotionProperties::ApplyPressure(const SoftBodyUpdateContext &inCont
 	}
 }
 
+void SoftBodyMotionProperties::ApplyAir(const SoftBodyUpdateContext &inContext)
+{
+	if (mAirDensity <= 0.0f || (mDragCoefficient <= 0.0f && mLiftCoefficient <= 0.0f))
+		return;
+
+	JPH_PROFILE_FUNCTION();
+
+	float dt = inContext.mSubStepDeltaTime;
+	Vec3 wind = inContext.mCenterOfMassTransform.Multiply3x3Transposed(mWindVelocity);
+	float half_density_dt = 0.5f * mAirDensity * dt / 3.0f;
+	for (const Face &f : mSettings->mFaces)
+	{
+		Vertex &v1 = mVertices[f.mVertex[0]];
+		Vertex &v2 = mVertices[f.mVertex[1]];
+		Vertex &v3 = mVertices[f.mVertex[2]];
+
+		Vec3 cross = (v2.mPosition - v1.mPosition).Cross(v3.mPosition - v1.mPosition);
+		float cross_length = cross.Length();
+		if (cross_length <= 1.0e-12f)
+			continue;
+
+		// The air against the face, with the normal turned to face downwind
+		Vec3 relative = wind - (v1.mVelocity + v2.mVelocity + v3.mVelocity) / 3.0f;
+		float relative_sq = relative.LengthSq();
+		if (relative_sq <= 1.0e-12f)
+			continue;
+		Vec3 normal = cross / cross_length;
+		float along_normal = relative.Dot(normal);
+		if (along_normal < 0.0f)
+		{
+			normal = -normal;
+			along_normal = -along_normal;
+		}
+
+		// F = 1/2 rho A ((C_D - C_L) (v . n) v + C_L |v|^2 n), a third to each vertex
+		float area = 0.5f * cross_length;
+		Vec3 impulse = (half_density_dt * area) * ((mDragCoefficient - mLiftCoefficient) * along_normal * relative + mLiftCoefficient * relative_sq * normal);
+
+		// Never push a vertex past the air's own velocity
+		float max_inv_mass = max(max(v1.mInvMass, v2.mInvMass), v3.mInvMass);
+		float change = max_inv_mass * impulse.Length();
+		float relative_speed = Sqrt(relative_sq);
+		if (change > relative_speed)
+			impulse *= relative_speed / change;
+
+		v1.mVelocity += v1.mInvMass * impulse;
+		v2.mVelocity += v2.mInvMass * impulse;
+		v3.mVelocity += v3.mInvMass * impulse;
+	}
+}
+
+void SoftBodyMotionProperties::ApplyGas(const SoftBodyUpdateContext &inContext)
+{
+	if (!mGasSealed || mGasAmount <= 0.0f)
+		return;
+
+	JPH_PROFILE_FUNCTION();
+
+	float volume = GetVolumeTimesSix() / 6.0f;
+	if (volume <= 0.0f)
+		return;
+
+	// Gradient of the volume to each vertex, dV/dx = 1/6 of the cross products of the other two corners of each face
+	mGasGradient.resize(mVertices.size());
+	for (Vec3 &g : mGasGradient)
+		g = Vec3::sZero();
+	for (const Face &f : mSettings->mFaces)
+	{
+		Vec3 x1 = mVertices[f.mVertex[0]].mPosition;
+		Vec3 x2 = mVertices[f.mVertex[1]].mPosition;
+		Vec3 x3 = mVertices[f.mVertex[2]].mPosition;
+		mGasGradient[f.mVertex[0]] += x2.Cross(x3);
+		mGasGradient[f.mVertex[1]] += x3.Cross(x1);
+		mGasGradient[f.mVertex[2]] += x1.Cross(x2);
+	}
+
+	// A vertex lying against something is held by it, so the gas moves only the others. Where the skin lies flat against something it can't carry
+	// the gauge pressure as tension, so that patch's share of it pushes the whole body away, which is how a ball stands on its contact patch.
+	// A vertex counts as lying against something over the 5 mm past its radius, fading out across them so it never switches at once.
+	constexpr float cContactFade = 5.0e-3f;
+	float w_sum = 0.0f;
+	float free_mass = 0.0f;
+	Vec3 patch = Vec3::sZero();
+	for (size_t i = 0; i < mVertices.size(); ++i)
+	{
+		Vertex &v = mVertices[i];
+		mGasGradient[i] /= 6.0f;
+		if (v.mInvMass <= 0.0f)
+			continue;
+		if (v.mCollidingShapeIndex >= 0)
+		{
+			float held = Clamp(1.0f - (v.mCollisionPlane.SignedDistance(v.mPosition) - mVertexRadius) / cContactFade, 0.0f, 1.0f);
+			patch += held * mGasGradient[i];
+			mGasGradient[i] *= 1.0f - held;
+		}
+		w_sum += v.mInvMass * mGasGradient[i].LengthSq();
+		free_mass += 1.0f / v.mInvMass;
+	}
+
+	if (w_sum <= 0.0f)
+		return;
+
+	// One implicit step of the gas alone: the volume y after this substep satisfies y - V = W (n R T / y - p_ambient - p_skin) with
+	// W = sum(w |dV/dx|^2) dt^2, the volume a unit of pressure moves the vertices by in a substep. That's the quadratic
+	// y^2 + (W (p_ambient + p_skin) - V) y - W n R T = 0, whose positive root holds the isothermal ideal gas law exactly at any outside pressure.
+	// The skin's tension at its rest size carries p_skin, since a stiff skin's edges pull only along the surface and a Gauss-Seidel pass
+	// takes back only about (h / 2r)^2 of a push along its normal, so leaving the whole gauge pressure to them would blow a stiff ball up.
+	float dt = inContext.mSubStepDeltaTime;
+	float w = w_sum * Square(dt);
+	float b = w * (mAmbientPressure + mSkinPressure) - volume;
+	float root = Sqrt(b * b + 4.0f * w * mGasAmount);
+	float next_volume = b > 0.0f? 2.0f * w * mGasAmount / (root + b) : 0.5f * (root - b);
+	float lambda = (next_volume - volume) / w_sum;
+	Vec3 support = free_mass > 0.0f? (-mSkinPressure * dt / free_mass) * patch : Vec3::sZero();
+	for (size_t i = 0; i < mVertices.size(); ++i)
+	{
+		Vertex &v = mVertices[i];
+		if (v.mInvMass <= 0.0f)
+			continue;
+		v.mPosition += (v.mInvMass * lambda) * mGasGradient[i] + support * dt;
+	}
+}
+
 void SoftBodyMotionProperties::IntegratePositions(const SoftBodyUpdateContext &inContext)
 {
 	JPH_PROFILE_FUNCTION();
@@ -962,7 +1085,12 @@ void SoftBodyMotionProperties::StartNextIteration(const SoftBodyUpdateContext &i
 {
 	ApplyPressure(ioContext);
 
+	ApplyAir(ioContext);
+
 	IntegratePositions(ioContext);
+
+	// The gas spans every vertex, so it's solved here before the parallel groups, leaving the skin's constraints the last word
+	ApplyGas(ioContext);
 }
 
 void SoftBodyMotionProperties::StartFirstIteration(SoftBodyUpdateContext &ioContext)

@@ -86,6 +86,13 @@ void read_cloth_settings(const Dictionary &p_settings, JoltSoftBody3D::ClothSett
 	r_settings.update_position = p_settings.get("update_position", r_settings.update_position);
 	r_settings.double_sided = p_settings.get("double_sided", r_settings.double_sided);
 	r_settings.manual = p_settings.get("manual", r_settings.manual);
+	r_settings.air_density = MAX((float)p_settings.get("air_density", r_settings.air_density), 0.0f);
+	r_settings.wind = p_settings.get("wind", r_settings.wind);
+	r_settings.drag = MAX((float)p_settings.get("drag", r_settings.drag), 0.0f);
+	r_settings.lift = MAX((float)p_settings.get("lift", r_settings.lift), 0.0f);
+	r_settings.pressure = p_settings.get("pressure", r_settings.pressure);
+	r_settings.ambient = MAX((float)p_settings.get("ambient", r_settings.ambient), 0.0f);
+	r_settings.sealed = p_settings.get("sealed", r_settings.sealed);
 }
 
 } // namespace
@@ -729,6 +736,8 @@ void JoltSoftBody3D::_update_cloth_settings() {
 	motion_properties.SetFacesDoubleSided(cs.double_sided);
 	motion_properties.SetEnableSkinConstraints(cs.skin_constraints);
 	motion_properties.SetSkinnedMaxDistanceMultiplier(cs.skin_multiplier);
+	motion_properties.SetAir(cs.air_density, to_jolt(cs.wind), cs.drag, cs.lift);
+	motion_properties.SetGas(cs.sealed, cloth->gas_amount, cs.ambient, cloth->skin_pressure);
 	jolt_body->SetFriction(cs.friction);
 	jolt_body->SetRestitution(cs.bounce);
 
@@ -933,6 +942,8 @@ PackedInt32Array JoltSoftBody3D::build(const Transform3D &p_frame, const PackedV
 		six_volume += (float)built->positions[faces[f]].cross(built->positions[faces[f + 1]]).dot(built->positions[faces[f + 2]]);
 	}
 	built->rest_volume = six_volume / 6.0f;
+	built->gas_amount = MAX(built->settings.pressure + built->settings.ambient, 0.0f) * MAX(built->rest_volume, 0.0f);
+	built->skin_pressure = MAX(built->settings.pressure, 0.0f);
 
 	if (cloth != nullptr) {
 		memdelete(cloth);
@@ -965,6 +976,11 @@ void JoltSoftBody3D::set_cloth_settings(const Dictionary &p_settings) {
 
 	read_cloth_settings(p_settings, cloth->settings);
 
+	if (p_settings.has("pressure") || (p_settings.has("sealed") && cloth->settings.sealed)) {
+		cloth->gas_amount = MAX(cloth->settings.pressure + cloth->settings.ambient, 0.0f) * cloth->rest_volume;
+		cloth->skin_pressure = MAX(cloth->settings.pressure, 0.0f);
+	}
+
 	_update_cloth_compliance();
 	_update_cloth_settings();
 	wake_up();
@@ -990,6 +1006,13 @@ Dictionary JoltSoftBody3D::get_cloth_settings() const {
 	settings["update_position"] = cs.update_position;
 	settings["double_sided"] = cs.double_sided;
 	settings["manual"] = cs.manual;
+	settings["air_density"] = cs.air_density;
+	settings["wind"] = cs.wind;
+	settings["drag"] = cs.drag;
+	settings["lift"] = cs.lift;
+	settings["pressure"] = cs.pressure;
+	settings["ambient"] = cs.ambient;
+	settings["sealed"] = cs.sealed;
 	return settings;
 }
 
@@ -1034,6 +1057,15 @@ float JoltSoftBody3D::get_volume() const {
 
 float JoltSoftBody3D::get_rest_volume() const {
 	return cloth != nullptr ? cloth->rest_volume : 0.0f;
+}
+
+float JoltSoftBody3D::get_gas_pressure() const {
+	if (cloth == nullptr || !cloth->settings.sealed) {
+		return 0.0f;
+	}
+
+	const float volume = in_space() ? get_volume() : cloth->rest_volume;
+	return volume > 0.0f ? cloth->gas_amount / volume - cloth->settings.ambient : 0.0f;
 }
 
 void JoltSoftBody3D::skin(const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard) {

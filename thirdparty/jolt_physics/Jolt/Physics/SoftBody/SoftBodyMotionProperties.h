@@ -87,6 +87,19 @@ public:
 	void								SetGravityOverride(Vec3Arg inGravity)		{ mGravityOverride = inGravity; mHasGravityOverride = true; }
 	void								ClearGravityOverride()						{ mHasGravityOverride = false; }
 
+	/// Air that pushes on every face with a quadratic drag along the face's velocity against the air and a lift along its normal (Wilson et al., Simulating Wind Effects on Cloth and Hair in Disney's Frozen, 2014)
+	void								SetAir(float inDensity, Vec3Arg inWindVelocity, float inDragCoefficient, float inLiftCoefficient) { mAirDensity = inDensity; mWindVelocity = inWindVelocity; mDragCoefficient = inDragCoefficient; mLiftCoefficient = inLiftCoefficient; }
+	float								GetAirDensity() const						{ return mAirDensity; }
+	Vec3								GetWindVelocity() const						{ return mWindVelocity; }
+
+	/// An isothermal ideal gas sealed inside a closed body against the air pressure outside it. inAmount is n R T, the gas's absolute pressure times its volume.
+	/// inSkinPressure is the gauge pressure the body's skin is taken to carry as tension at its rest size, so the gas pushes on the vertices only by how far its pressure is from the air's plus that.
+	void								SetGas(bool inSealed, float inAmount, float inAmbientPressure, float inSkinPressure) { mGasSealed = inSealed; mGasAmount = inAmount; mAmbientPressure = inAmbientPressure; mSkinPressure = inSkinPressure; }
+	bool								IsGasSealed() const							{ return mGasSealed; }
+	float								GetGasAmount() const						{ return mGasAmount; }
+	float								GetAmbientPressure() const					{ return mAmbientPressure; }
+	float								GetSkinPressure() const						{ return mSkinPressure; }
+
 	/// Update the position of the body while simulating (set to false for something that is attached to the static world)
 	bool								GetUpdatePosition() const					{ return mUpdatePosition; }
 	void								SetUpdatePosition(bool inUpdatePosition)	{ mUpdatePosition = inUpdatePosition; }
@@ -262,6 +275,12 @@ private:
 	/// Apply pressure force and update the vertex velocities
 	void								ApplyPressure(const SoftBodyUpdateContext &inContext);
 
+	/// Push every face with the air's drag and lift
+	void								ApplyAir(const SoftBodyUpdateContext &inContext);
+
+	/// Hold the sealed gas's volume by the ideal gas law against the air outside
+	void								ApplyGas(const SoftBodyUpdateContext &inContext);
+
 	/// Integrate the positions of all vertices by 1 sub step
 	void								IntegratePositions(const SoftBodyUpdateContext &inContext);
 
@@ -331,6 +350,15 @@ private:
 	uint								mNumSensors;								///< Workaround for TSAN false positive: store mCollidingSensors.size() in a separate variable.
 	float								mPressure;									///< n * R * T, amount of substance * ideal gas constant * absolute temperature, see https://en.wikipedia.org/wiki/Pressure
 	Vec3								mGravityOverride = Vec3::sZero();			///< Gravity in world space used instead of the physics system's when mHasGravityOverride is set
+	Vec3								mWindVelocity = Vec3::sZero();				///< Velocity of the air around the body in world space
+	float								mAirDensity = 0.0f;							///< Density of the air around the body in kg/m^3, 0 for none
+	float								mDragCoefficient = 0.0f;					///< Drag coefficient of each face
+	float								mLiftCoefficient = 0.0f;					///< Lift coefficient of each face
+	float								mGasAmount = 0.0f;							///< n * R * T of the sealed gas, its absolute pressure times its volume
+	float								mAmbientPressure = 0.0f;					///< Absolute pressure of the air outside the body
+	float								mSkinPressure = 0.0f;						///< Gauge pressure carried by the skin's tension at its rest size
+	Array<Vec3>							mGasGradient;								///< Scratch space for the gradient of the volume to each vertex
+	bool								mGasSealed = false;							///< If the gas is held in the body
 	bool								mHasGravityOverride = false;				///< If mGravityOverride replaces the physics system's gravity
 	float								mSkinnedMaxDistanceMultiplier = 1.0f;		///< Multiplier applied to Skinned::mMaxDistance to allow tightening or loosening of the skin constraints
 	float								mVertexRadius = 0.0f;						///< How big the particles are, can be used to push the vertices a little bit away from the surface of other bodies to prevent z-fighting
