@@ -62,6 +62,7 @@ private:
 		void OnContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
 		void OnCharacterContactAdded(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
 		void OnCharacterContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) override;
+		void OnAdjustBodyVelocity(const JPH::CharacterVirtual *p_character, const JPH::Body &p_body, JPH::Vec3 &r_linear_velocity, JPH::Vec3 &r_angular_velocity) override;
 	};
 
 	static constexpr float FLOOR_LIP_TOLERANCE = 0.01f;

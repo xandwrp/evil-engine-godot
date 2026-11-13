@@ -34,6 +34,7 @@
 #include "../misc/jolt_type_conversions.h"
 #include "../spaces/jolt_broad_phase_layer.h"
 #include "../spaces/jolt_space_3d.h"
+#include "jolt_body_3d.h"
 #include "jolt_object_3d.h"
 #include "jolt_shaped_object_3d.h"
 
@@ -106,6 +107,48 @@ void JoltCharacter3D::ContactFilter::OnCharacterContactAdded(const JPH::Characte
 
 void JoltCharacter3D::ContactFilter::OnCharacterContactPersisted(const JPH::CharacterVirtual *p_character, const JPH::CharacterContact &p_contact, JPH::CharacterContactSettings &r_settings) {
 	r_settings.mCanPushCharacter = false;
+}
+
+void JoltCharacter3D::ContactFilter::OnAdjustBodyVelocity(const JPH::CharacterVirtual *p_character, const JPH::Body &p_body, JPH::Vec3 &r_linear_velocity, JPH::Vec3 &r_angular_velocity) {
+	if (p_body.IsSensor()) {
+		return;
+	}
+
+	const JoltBody3D *body = reinterpret_cast<const JoltObject3D *>(p_body.GetUserData())->as_body();
+	if (body == nullptr) {
+		return;
+	}
+
+	if (!p_body.IsDynamic()) {
+		r_linear_velocity += to_jolt(body->get_linear_surface_velocity());
+		r_angular_velocity += to_jolt(body->get_angular_surface_velocity());
+	}
+
+	if (!body->has_shape_surface_velocities()) {
+		return;
+	}
+
+	JPH::SubShapeID sub_shape_id;
+	bool found = false;
+
+	if (p_character->GetGroundBodyID() == p_body.GetID()) {
+		sub_shape_id = p_character->GetGroundSubShapeID();
+		found = true;
+	} else {
+		for (const JPH::CharacterContact &contact : p_character->GetActiveContacts()) {
+			if (contact.mBodyB == p_body.GetID()) {
+				sub_shape_id = contact.mSubShapeIDB;
+				found = true;
+				break;
+			}
+		}
+	}
+
+	JPH::Vec3 linear, angular;
+	if (found && body->read_shape_surface_velocity(p_body, sub_shape_id, p_body.GetCenterOfMassPosition(), linear, angular)) {
+		r_linear_velocity += linear;
+		r_angular_velocity += angular;
+	}
 }
 
 bool JoltCharacter3D::_pushes_toward(const JPH::CharacterContact &p_contact) {

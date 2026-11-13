@@ -762,6 +762,12 @@ void JoltPhysicsServer3D::body_set_param(RID p_body, PS3DE::BodyParameter p_para
 		return;
 	}
 
+	if ((int)p_param == BODY_PARAM_SHAPE_SURFACE_VELOCITIES) {
+		ERR_FAIL_COND_MSG(p_value.get_type() != Variant::PACKED_FLOAT32_ARRAY, "A body's shape surface velocities are a PackedFloat32Array of nine floats per shape.");
+		body->set_shape_surface_velocities(p_value);
+		return;
+	}
+
 	body->set_param(p_param, p_value);
 }
 
@@ -775,6 +781,10 @@ Variant JoltPhysicsServer3D::body_get_param(RID p_body, PS3DE::BodyParameter p_p
 
 	if ((int)p_param == BODY_PARAM_SHAPE_FACE_SURFACES) {
 		return body->get_shape_face_surfaces();
+	}
+
+	if ((int)p_param == BODY_PARAM_SHAPE_SURFACE_VELOCITIES) {
+		return body->get_shape_surface_velocities();
 	}
 
 	return body->get_param(p_param);

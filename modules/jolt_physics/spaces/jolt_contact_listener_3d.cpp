@@ -46,6 +46,7 @@ void JoltContactListener3D::OnContactAdded(const JPH::Body &p_body1, const JPH::
 	_try_apply_face_surfaces(p_body1, p_body2, p_manifold, p_settings);
 	_try_override_collision_response(p_body1, p_body2, p_settings);
 	_try_apply_surface_velocities(p_body1, p_body2, p_settings);
+	_try_apply_shape_surface_velocities(p_body1, p_body2, p_manifold, p_settings);
 	_try_add_contacts(p_body1, p_body2, p_manifold, p_settings);
 	_try_evaluate_area_overlap(p_body1, p_body2, p_manifold.mSubShapeID1, p_manifold.mSubShapeID2);
 
@@ -58,6 +59,7 @@ void JoltContactListener3D::OnContactPersisted(const JPH::Body &p_body1, const J
 	_try_apply_face_surfaces(p_body1, p_body2, p_manifold, p_settings);
 	_try_override_collision_response(p_body1, p_body2, p_settings);
 	_try_apply_surface_velocities(p_body1, p_body2, p_settings);
+	_try_apply_shape_surface_velocities(p_body1, p_body2, p_manifold, p_settings);
 	_try_add_contacts(p_body1, p_body2, p_manifold, p_settings);
 	_try_evaluate_area_overlap(p_body1, p_body2, p_manifold.mSubShapeID1, p_manifold.mSubShapeID2);
 
@@ -148,6 +150,38 @@ bool JoltContactListener3D::_try_override_collision_response(const JPH::Body &p_
 	} else if (can_collide2 && !can_collide1) {
 		p_settings.mInvMassScale1 = 0.0f;
 	}
+
+	return true;
+}
+
+bool JoltContactListener3D::_try_apply_shape_surface_velocities(const JPH::Body &p_jolt_body1, const JPH::Body &p_jolt_body2, const JPH::ContactManifold &p_manifold, JPH::ContactSettings &p_settings) {
+	if (p_jolt_body1.IsSensor() || p_jolt_body2.IsSensor()) {
+		return false;
+	}
+
+	const JoltBody3D *body1 = reinterpret_cast<JoltBody3D *>(p_jolt_body1.GetUserData());
+	const JoltBody3D *body2 = reinterpret_cast<JoltBody3D *>(p_jolt_body2.GetUserData());
+
+	if (!body1->has_shape_surface_velocities() && !body2->has_shape_surface_velocities()) {
+		return false;
+	}
+
+	const JPH::RVec3 about = p_jolt_body1.GetCenterOfMassPosition();
+
+	JPH::Vec3 linear1 = JPH::Vec3::sZero();
+	JPH::Vec3 angular1 = JPH::Vec3::sZero();
+	JPH::Vec3 linear2 = JPH::Vec3::sZero();
+	JPH::Vec3 angular2 = JPH::Vec3::sZero();
+
+	const bool moving1 = body1->has_shape_surface_velocities() && body1->read_shape_surface_velocity(p_jolt_body1, p_manifold.mSubShapeID1, about, linear1, angular1);
+	const bool moving2 = body2->has_shape_surface_velocities() && body2->read_shape_surface_velocity(p_jolt_body2, p_manifold.mSubShapeID2, about, linear2, angular2);
+
+	if (!moving1 && !moving2) {
+		return false;
+	}
+
+	p_settings.mRelativeLinearSurfaceVelocity += linear2 - linear1;
+	p_settings.mRelativeAngularSurfaceVelocity += angular2 - angular1;
 
 	return true;
 }

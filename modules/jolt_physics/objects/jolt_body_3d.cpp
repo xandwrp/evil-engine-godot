@@ -797,6 +797,50 @@ Vector3 JoltBody3D::get_velocity_at_position(const Vector3 &p_position) const {
 	return total_linear_velocity + total_angular_velocity.cross(com_to_pos);
 }
 
+void JoltBody3D::set_shape_surface_velocities(const PackedFloat32Array &p_velocities) {
+	ERR_FAIL_COND_MSG(p_velocities.size() % 9 != 0, "A body's shape surface velocities are nine floats per shape: a linear velocity, an angular velocity and the point it turns about, in the body's frame.");
+
+	for (const float value : p_velocities) {
+		ERR_FAIL_COND_MSG(!Math::is_finite(value), "A body's shape surface velocities are finite.");
+	}
+
+	bool moving = false;
+	for (const float value : p_velocities) {
+		moving = moving || value != 0.0f;
+	}
+
+	shape_surface_velocities = moving ? p_velocities : PackedFloat32Array();
+
+	if (in_space()) {
+		const JPH::AABox bounds = jolt_body->GetWorldSpaceBounds();
+		space->get_body_iface().ActivateBodiesInAABox(JPH::AABox(bounds.mMin - JPH::Vec3::sReplicate(0.1f), bounds.mMax + JPH::Vec3::sReplicate(0.1f)), {}, {});
+	}
+}
+
+bool JoltBody3D::read_shape_surface_velocity(const JPH::Body &p_jolt_body, const JPH::SubShapeID &p_sub_shape_id, JPH::RVec3Arg p_about, JPH::Vec3 &r_linear, JPH::Vec3 &r_angular) const {
+	const int shape_index = find_shape_index(p_sub_shape_id);
+	if (shape_index < 0 || shape_index * 9 + 8 >= shape_surface_velocities.size()) {
+		return false;
+	}
+
+	const float *at = shape_surface_velocities.ptr() + shape_index * 9;
+	const JPH::Vec3 local_linear(at[0], at[1], at[2]);
+	const JPH::Vec3 local_angular(at[3], at[4], at[5]);
+	const JPH::Vec3 local_pivot = JPH::Vec3(at[6], at[7], at[8]) * to_jolt(scale);
+
+	if (local_linear.IsNearZero(0.0f) && local_angular.IsNearZero(0.0f)) {
+		return false;
+	}
+
+	const JPH::Quat rotation = p_jolt_body.GetRotation();
+	const JPH::RVec3 pivot = p_jolt_body.GetPosition() + rotation * local_pivot;
+
+	r_angular = rotation * local_angular;
+	r_linear = rotation * local_linear + r_angular.Cross(JPH::Vec3(p_about - pivot));
+
+	return true;
+}
+
 void JoltBody3D::set_center_of_mass_custom(const Vector3 &p_center_of_mass) {
 	if (custom_center_of_mass && p_center_of_mass == center_of_mass_custom) {
 		return;

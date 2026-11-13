@@ -105,6 +105,8 @@ private:
 	bool sleep_allowed = true;
 	bool sleep_initially = false;
 	bool custom_center_of_mass = false;
+
+	PackedFloat32Array shape_surface_velocities;
 	bool custom_integrator = false;
 	bool has_point_gravity = false;
 
@@ -202,6 +204,11 @@ public:
 	virtual bool has_custom_center_of_mass() const override { return custom_center_of_mass; }
 	virtual Vector3 get_center_of_mass_custom() const override { return center_of_mass_custom; }
 	void set_center_of_mass_custom(const Vector3 &p_center_of_mass);
+
+	PackedFloat32Array get_shape_surface_velocities() const { return shape_surface_velocities; }
+	void set_shape_surface_velocities(const PackedFloat32Array &p_velocities);
+	bool has_shape_surface_velocities() const { return !shape_surface_velocities.is_empty(); }
+	bool read_shape_surface_velocity(const JPH::Body &p_jolt_body, const JPH::SubShapeID &p_sub_shape_id, JPH::RVec3Arg p_about, JPH::Vec3 &r_linear, JPH::Vec3 &r_angular) const;
 
 	int get_max_contacts_reported() const { return contacts.size(); }
 	void set_max_contacts_reported(int p_count);
