@@ -36,6 +36,7 @@
 #include "joints/jolt_generic_6dof_joint_3d.h"
 #include "joints/jolt_hinge_joint_3d.h"
 #include "joints/jolt_joint_3d.h"
+#include "joints/jolt_path_joint_3d.h"
 #include "joints/jolt_pin_joint_3d.h"
 #include "joints/jolt_pulley_joint_3d.h"
 #include "joints/jolt_slider_joint_3d.h"
@@ -1848,6 +1849,24 @@ void JoltPhysicsServer3D::joint_make_pulley(RID p_joint, RID p_body_a, const Vec
 	ERR_FAIL_COND(body_a == body_b);
 
 	JoltJoint3D *new_joint = memnew(JoltPulleyJoint3D(*old_joint, body_a, body_b, p_local_a, p_local_b, p_fixed_a, p_fixed_b, p_ratio));
+
+	memdelete(old_joint);
+	old_joint = nullptr;
+
+	joint_owner.replace(p_joint, new_joint);
+}
+
+void JoltPhysicsServer3D::joint_make_path(RID p_joint, RID p_holder, const Transform3D &p_path_frame, const PackedVector3Array &p_points, const PackedVector3Array &p_tangents, const PackedVector3Array &p_normals, bool p_looping, RID p_follower, const Vector3 &p_follower_point, int p_rotation) {
+	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(old_joint);
+
+	JoltBody3D *holder = body_owner.get_or_null(p_holder);
+
+	JoltBody3D *follower = body_owner.get_or_null(p_follower);
+	ERR_FAIL_NULL_MSG(follower, "A path's follower is a body.");
+	ERR_FAIL_COND_MSG(holder == follower, "A path's follower isn't the body holding it.");
+
+	JoltJoint3D *new_joint = memnew(JoltPathJoint3D(*old_joint, holder, p_path_frame, p_points, p_tangents, p_normals, p_looping, follower, p_follower_point, p_rotation));
 
 	memdelete(old_joint);
 	old_joint = nullptr;

@@ -33,6 +33,7 @@
 #include "../jolt_physics_server_3d.h"
 #include "jolt_distance_joint_3d.h"
 #include "jolt_joint_3d.h"
+#include "jolt_path_joint_3d.h"
 #include "jolt_pulley_joint_3d.h"
 
 using Server = JoltPhysicsServer3D;
@@ -61,6 +62,14 @@ JoltPulleyJoint3D *JoltJoints3D::_get_pulley(const RID &p_joint) {
 	ERR_FAIL_COND_V_MSG(joint->get_jolt_type() != JOLT_JOINT_TYPE_PULLEY, nullptr, "This joint isn't a pulley.");
 
 	return static_cast<JoltPulleyJoint3D *>(joint);
+}
+
+JoltPathJoint3D *JoltJoints3D::_get_path(const RID &p_joint) {
+	JoltJoint3D *joint = _get_joint(p_joint);
+	ERR_FAIL_NULL_V(joint, nullptr);
+	ERR_FAIL_COND_V_MSG(joint->get_jolt_type() != JOLT_JOINT_TYPE_PATH, nullptr, "This joint isn't a path.");
+
+	return static_cast<JoltPathJoint3D *>(joint);
 }
 
 bool JoltJoints3D::is_enabled(const RID &p_joint) {
@@ -296,6 +305,51 @@ float JoltJoints3D::get_pulley_length(const RID &p_joint) {
 	return joint != nullptr ? joint->get_current_length() : 0.0f;
 }
 
+void JoltJoints3D::make_path(const RID &p_joint, const RID &p_holder, const Transform3D &p_path_frame, const PackedVector3Array &p_points, const PackedVector3Array &p_tangents, const PackedVector3Array &p_normals, bool p_looping, const RID &p_follower, const Vector3 &p_follower_point, int p_rotation) {
+	ERR_FAIL_COND_MSG(p_points.size() < 2, "A path runs through two points or more.");
+	ERR_FAIL_COND_MSG(!p_tangents.is_empty() && p_tangents.size() != p_points.size(), "A path's tangents are one per point, or none to take them from its points.");
+	ERR_FAIL_COND_MSG(!p_normals.is_empty() && p_normals.size() != p_points.size(), "A path's normals are one per point, or none to keep them upright.");
+	ERR_FAIL_COND_MSG(p_rotation < 0 || p_rotation > 5, "A path's follower turns freely (0), about its tangent (1), normal (2) or binormal (3), with it (4), or with its holder (5).");
+
+	Server *server = Server::get_singleton();
+	ERR_FAIL_NULL(server);
+
+	server->joint_make_path(p_joint, p_holder, p_path_frame, p_points, p_tangents, p_normals, p_looping, p_follower, p_follower_point, p_rotation);
+}
+
+float JoltJoints3D::get_path_fraction(const RID &p_joint) {
+	JoltPathJoint3D *joint = _get_path(p_joint);
+	return joint != nullptr ? joint->get_fraction() : 0.0f;
+}
+
+float JoltJoints3D::get_path_max_fraction(const RID &p_joint) {
+	JoltPathJoint3D *joint = _get_path(p_joint);
+	return joint != nullptr ? joint->get_max_fraction() : 0.0f;
+}
+
+Transform3D JoltJoints3D::get_path_point(const RID &p_joint, float p_fraction) {
+	JoltPathJoint3D *joint = _get_path(p_joint);
+	return joint != nullptr ? joint->get_point(p_fraction) : Transform3D();
+}
+
+void JoltJoints3D::set_path_friction(const RID &p_joint, float p_force) {
+	if (JoltPathJoint3D *joint = _get_path(p_joint)) {
+		joint->set_friction(p_force);
+	}
+}
+
+void JoltJoints3D::set_path_motor(const RID &p_joint, int p_mode, float p_target) {
+	if (JoltPathJoint3D *joint = _get_path(p_joint)) {
+		joint->set_motor(p_mode, p_target);
+	}
+}
+
+void JoltJoints3D::set_path_motor_spring(const RID &p_joint, float p_frequency, float p_damping, float p_max_force) {
+	if (JoltPathJoint3D *joint = _get_path(p_joint)) {
+		joint->set_motor_spring(p_frequency, p_damping, p_max_force);
+	}
+}
+
 void JoltJoints3D::_bind_methods() {
 	const StringName c = get_class_static();
 
@@ -336,10 +390,28 @@ void JoltJoints3D::_bind_methods() {
 	ClassDB::bind_static_method(c, D_METHOD("get_pulley_ratio", "joint"), &JoltJoints3D::get_pulley_ratio);
 	ClassDB::bind_static_method(c, D_METHOD("get_pulley_length", "joint"), &JoltJoints3D::get_pulley_length);
 
+	ClassDB::bind_static_method(c, D_METHOD("make_path", "joint", "holder", "path_frame", "points", "tangents", "normals", "looping", "follower", "follower_point", "rotation"), &JoltJoints3D::make_path);
+	ClassDB::bind_static_method(c, D_METHOD("get_path_fraction", "joint"), &JoltJoints3D::get_path_fraction);
+	ClassDB::bind_static_method(c, D_METHOD("get_path_max_fraction", "joint"), &JoltJoints3D::get_path_max_fraction);
+	ClassDB::bind_static_method(c, D_METHOD("get_path_point", "joint", "fraction"), &JoltJoints3D::get_path_point);
+	ClassDB::bind_static_method(c, D_METHOD("set_path_friction", "joint", "force"), &JoltJoints3D::set_path_friction);
+	ClassDB::bind_static_method(c, D_METHOD("set_path_motor", "joint", "mode", "target"), &JoltJoints3D::set_path_motor);
+	ClassDB::bind_static_method(c, D_METHOD("set_path_motor_spring", "joint", "frequency", "damping", "max_force"), &JoltJoints3D::set_path_motor_spring);
+
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_NONE", JOLT_JOINT_TYPE_NONE);
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_FIXED", JOLT_JOINT_TYPE_FIXED);
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_DISTANCE", JOLT_JOINT_TYPE_DISTANCE);
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_PULLEY", JOLT_JOINT_TYPE_PULLEY);
+	ClassDB::bind_integer_constant(c, StringName(), "TYPE_PATH", JOLT_JOINT_TYPE_PATH);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_FREE", 0);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_ABOUT_TANGENT", 1);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_ABOUT_NORMAL", 2);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_ABOUT_BINORMAL", 3);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_WITH_PATH", 4);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_TURN_WITH_HOLDER", 5);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_MOTOR_OFF", 0);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_MOTOR_SPEED", 1);
+	ClassDB::bind_integer_constant(c, StringName(), "PATH_MOTOR_FRACTION", 2);
 	ClassDB::bind_integer_constant(c, StringName(), "SPRING_FREQUENCY", 0);
 	ClassDB::bind_integer_constant(c, StringName(), "SPRING_STIFFNESS", 1);
 

@@ -36,6 +36,7 @@
 
 class JoltDistanceJoint3D;
 class JoltJoint3D;
+class JoltPathJoint3D;
 class JoltPulleyJoint3D;
 
 class JoltJoints3D : public Object {
@@ -44,6 +45,7 @@ class JoltJoints3D : public Object {
 	static JoltJoint3D *_get_joint(const RID &p_joint);
 	static JoltDistanceJoint3D *_get_distance(const RID &p_joint);
 	static JoltPulleyJoint3D *_get_pulley(const RID &p_joint);
+	static JoltPathJoint3D *_get_path(const RID &p_joint);
 
 protected:
 	static void _bind_methods();
@@ -89,4 +91,12 @@ public:
 	static void set_pulley_limits(const RID &p_joint, float p_min, float p_max);
 	static float get_pulley_ratio(const RID &p_joint);
 	static float get_pulley_length(const RID &p_joint);
+
+	static void make_path(const RID &p_joint, const RID &p_holder, const Transform3D &p_path_frame, const PackedVector3Array &p_points, const PackedVector3Array &p_tangents, const PackedVector3Array &p_normals, bool p_looping, const RID &p_follower, const Vector3 &p_follower_point, int p_rotation);
+	static float get_path_fraction(const RID &p_joint);
+	static float get_path_max_fraction(const RID &p_joint);
+	static Transform3D get_path_point(const RID &p_joint, float p_fraction);
+	static void set_path_friction(const RID &p_joint, float p_force);
+	static void set_path_motor(const RID &p_joint, int p_mode, float p_target);
+	static void set_path_motor_spring(const RID &p_joint, float p_frequency, float p_damping, float p_max_force);
 };
