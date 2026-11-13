@@ -1824,6 +1824,21 @@ void JoltPhysicsServer3D::joint_make_fixed(RID p_joint, RID p_body_a, const Tran
 	joint_owner.replace(p_joint, new_joint);
 }
 
+void JoltPhysicsServer3D::joint_make_world_pin(RID p_joint, RID p_body, const Transform3D &p_local_ref, const Transform3D &p_world_ref) {
+	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
+	ERR_FAIL_NULL(old_joint);
+
+	JoltBody3D *body = body_owner.get_or_null(p_body);
+	ERR_FAIL_NULL(body);
+
+	JoltJoint3D *new_joint = memnew(JoltGeneric6DOFJoint3D(*old_joint, nullptr, body, p_world_ref, p_local_ref));
+
+	memdelete(old_joint);
+	old_joint = nullptr;
+
+	joint_owner.replace(p_joint, new_joint);
+}
+
 void JoltPhysicsServer3D::joint_make_distance(RID p_joint, RID p_body_a, const Vector3 &p_local_a, RID p_body_b, const Vector3 &p_local_b) {
 	JoltJoint3D *old_joint = joint_owner.get_or_null(p_joint);
 	ERR_FAIL_NULL(old_joint);

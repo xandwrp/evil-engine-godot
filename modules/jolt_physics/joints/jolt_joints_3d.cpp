@@ -31,7 +31,10 @@
 #include "jolt_joints_3d.h"
 
 #include "../jolt_physics_server_3d.h"
+#include "../misc/jolt_type_conversions.h"
+#include "../objects/jolt_body_3d.h"
 #include "jolt_distance_joint_3d.h"
+#include "jolt_generic_6dof_joint_3d.h"
 #include "jolt_joint_3d.h"
 #include "jolt_path_joint_3d.h"
 #include "jolt_pulley_joint_3d.h"
@@ -70,6 +73,14 @@ JoltPathJoint3D *JoltJoints3D::_get_path(const RID &p_joint) {
 	ERR_FAIL_COND_V_MSG(joint->get_jolt_type() != JOLT_JOINT_TYPE_PATH, nullptr, "This joint isn't a path.");
 
 	return static_cast<JoltPathJoint3D *>(joint);
+}
+
+JoltGeneric6DOFJoint3D *JoltJoints3D::_get_6dof(const RID &p_joint) {
+	JoltJoint3D *joint = _get_joint(p_joint);
+	ERR_FAIL_NULL_V(joint, nullptr);
+	ERR_FAIL_COND_V_MSG(joint->get_type() != PS3DE::JOINT_TYPE_6DOF, nullptr, "Only a 6DOF joint has a muscle.");
+
+	return static_cast<JoltGeneric6DOFJoint3D *>(joint);
 }
 
 bool JoltJoints3D::is_enabled(const RID &p_joint) {
@@ -350,6 +361,159 @@ void JoltJoints3D::set_path_motor_spring(const RID &p_joint, float p_frequency, 
 	}
 }
 
+void JoltJoints3D::set_muscles(const TypedArray<RID> &p_joints, const PackedFloat32Array &p_settings) {
+	const int count = p_joints.size();
+	ERR_FAIL_COND_MSG(p_settings.size() != count * 3, "A muscle's settings are three floats per joint: its stiffness in newton metres per radian, its damping in newton metre seconds per radian and its torque limit in newton metres.");
+
+	LocalVector<JoltGeneric6DOFJoint3D *> joints;
+	joints.resize(count);
+
+	for (int i = 0; i < count; ++i) {
+		joints[i] = _get_6dof(p_joints[i]);
+		ERR_FAIL_NULL(joints[i]);
+
+		const float stiffness = p_settings[i * 3 + 0];
+		const float damping = p_settings[i * 3 + 1];
+		const float torque = p_settings[i * 3 + 2];
+
+		ERR_FAIL_COND_MSG(!(torque >= 0.0f) || !Math::is_finite(torque), vformat("Muscle %d's torque limit is from 0, off and back on its friction, upward.", i));
+
+		if (torque > 0.0f) {
+			ERR_FAIL_COND_MSG(!(stiffness > 0.0f) || !Math::is_finite(stiffness), vformat("Muscle %d's stiffness is above 0 while it pulls, since Jolt turns a spring without stiffness off.", i));
+			ERR_FAIL_COND_MSG(!(damping >= 0.0f) || !Math::is_finite(damping), vformat("Muscle %d's damping is from 0 upward.", i));
+		}
+	}
+
+	for (int i = 0; i < count; ++i) {
+		joints[i]->set_muscle(p_settings[i * 3 + 0], p_settings[i * 3 + 1], p_settings[i * 3 + 2]);
+	}
+}
+
+void JoltJoints3D::drive_muscles(const TypedArray<RID> &p_joints, const PackedFloat32Array &p_targets) {
+	const int count = p_joints.size();
+	ERR_FAIL_COND_MSG(p_targets.size() != count * 7, "A muscle's target is seven floats per joint: its orientation in its constraint space as a quaternion's x, y, z and w, and its angular velocity in body 2's constraint space.");
+
+	LocalVector<JoltGeneric6DOFJoint3D *> joints;
+	joints.resize(count);
+
+	for (int i = 0; i < count; ++i) {
+		joints[i] = _get_6dof(p_joints[i]);
+		ERR_FAIL_NULL(joints[i]);
+
+		const float *target = p_targets.ptr() + i * 7;
+		const float length = target[0] * target[0] + target[1] * target[1] + target[2] * target[2] + target[3] * target[3];
+		ERR_FAIL_COND_MSG(!(Math::abs(length - 1.0f) < 1e-3f), vformat("Muscle %d's orientation is a unit quaternion.", i));
+		ERR_FAIL_COND_MSG(!Math::is_finite(target[4]) || !Math::is_finite(target[5]) || !Math::is_finite(target[6]), vformat("Muscle %d's angular velocity is finite.", i));
+	}
+
+	for (int i = 0; i < count; ++i) {
+		const float *target = p_targets.ptr() + i * 7;
+		const JPH::Quat orientation = JPH::Quat(target[0], target[1], target[2], target[3]).Normalized();
+		joints[i]->drive_muscle(orientation, JPH::Vec3(target[4], target[5], target[6]));
+	}
+}
+
+PackedFloat32Array JoltJoints3D::get_muscles(const TypedArray<RID> &p_joints) {
+	const int count = p_joints.size();
+
+	PackedFloat32Array muscles;
+	muscles.resize(count * 4);
+	float *muscle = muscles.ptrw();
+
+	for (int i = 0; i < count; ++i) {
+		JoltGeneric6DOFJoint3D *joint = _get_6dof(p_joints[i]);
+		ERR_FAIL_NULL_V(joint, PackedFloat32Array());
+
+		const Vector3 torque = joint->get_muscle_torque();
+		muscle[i * 4 + 0] = (float)torque.x;
+		muscle[i * 4 + 1] = (float)torque.y;
+		muscle[i * 4 + 2] = (float)torque.z;
+		muscle[i * 4 + 3] = joint->get_muscle_error();
+	}
+
+	return muscles;
+}
+
+void JoltJoints3D::make_pin(const RID &p_joint, const RID &p_body, const Transform3D &p_frame) {
+	Server *server = Server::get_singleton();
+	ERR_FAIL_NULL_MSG(server, "Jolt's joints are reached only while Jolt Physics is the physics server.");
+
+	JoltBody3D *body = server->get_body(p_body);
+	ERR_FAIL_NULL_MSG(body, "A pin holds a body.");
+
+	Transform3D world = body->get_transform_unscaled() * p_frame;
+	world.basis.orthonormalize();
+
+	server->joint_make_world_pin(p_joint, p_body, p_frame, world);
+}
+
+void JoltJoints3D::set_pin(const RID &p_joint, float p_stiffness, float p_damping, float p_force, float p_turn_stiffness, float p_turn_damping, float p_torque) {
+	JoltGeneric6DOFJoint3D *joint = _get_6dof(p_joint);
+	ERR_FAIL_NULL(joint);
+	ERR_FAIL_COND_MSG(!joint->is_held_by_world(), "This 6DOF joint isn't a pin, held by the world on its first side.");
+	ERR_FAIL_COND_MSG(!(p_force >= 0.0f) || !Math::is_finite(p_force), "A pin's force limit is from 0, off, upward.");
+	ERR_FAIL_COND_MSG(!(p_torque >= 0.0f) || !Math::is_finite(p_torque), "A pin's torque limit is from 0, off, upward.");
+
+	if (p_force > 0.0f) {
+		ERR_FAIL_COND_MSG(!(p_stiffness > 0.0f) || !Math::is_finite(p_stiffness), "A pin's stiffness is above 0 while it pulls, since Jolt turns a spring without stiffness off.");
+		ERR_FAIL_COND_MSG(!(p_damping >= 0.0f) || !Math::is_finite(p_damping), "A pin's damping is from 0 upward.");
+	}
+
+	if (p_torque > 0.0f) {
+		ERR_FAIL_COND_MSG(!(p_turn_stiffness > 0.0f) || !Math::is_finite(p_turn_stiffness), "A pin's turning stiffness is above 0 while it turns, since Jolt turns a spring without stiffness off.");
+		ERR_FAIL_COND_MSG(!(p_turn_damping >= 0.0f) || !Math::is_finite(p_turn_damping), "A pin's turning damping is from 0 upward.");
+	}
+
+	joint->set_pin(p_stiffness, p_damping, p_force);
+	joint->set_muscle(p_turn_stiffness, p_turn_damping, p_torque);
+}
+
+void JoltJoints3D::drive_pin(const RID &p_joint, const Vector3 &p_position, const Quaternion &p_orientation, const Vector3 &p_velocity, const Vector3 &p_spin) {
+	JoltGeneric6DOFJoint3D *joint = _get_6dof(p_joint);
+	ERR_FAIL_NULL(joint);
+	ERR_FAIL_COND_MSG(!joint->is_held_by_world(), "This 6DOF joint isn't a pin, held by the world on its first side.");
+	ERR_FAIL_COND_MSG(!p_orientation.is_normalized(), "A pin's orientation is a unit quaternion.");
+
+	Transform3D world;
+	Transform3D held;
+	ERR_FAIL_COND(!joint->get_world_frames(world, held));
+
+	const JPH::Vec3 position = to_jolt(world.basis.xform_inv(p_position - world.origin));
+	const JPH::Vec3 velocity = to_jolt(world.basis.xform_inv(p_velocity));
+	const JPH::Quat orientation = (to_jolt(world.basis).Conjugated() * to_jolt(p_orientation)).Normalized();
+	const JPH::Vec3 spin = to_jolt(held.basis.xform_inv(p_spin));
+
+	joint->drive_pin(position, velocity);
+	joint->drive_muscle(orientation, spin);
+}
+
+PackedFloat32Array JoltJoints3D::get_pin(const RID &p_joint) {
+	JoltGeneric6DOFJoint3D *joint = _get_6dof(p_joint);
+	ERR_FAIL_NULL_V(joint, PackedFloat32Array());
+	ERR_FAIL_COND_V_MSG(!joint->is_held_by_world(), PackedFloat32Array(), "This 6DOF joint isn't a pin, held by the world on its first side.");
+
+	Transform3D world;
+	Transform3D held;
+	ERR_FAIL_COND_V(!joint->get_world_frames(world, held), PackedFloat32Array());
+
+	const Vector3 force = world.basis.xform(joint->get_pin_force());
+	const Vector3 torque = held.basis.xform(joint->get_muscle_torque());
+
+	PackedFloat32Array pin;
+	pin.resize(8);
+	float *values = pin.ptrw();
+	values[0] = (float)force.x;
+	values[1] = (float)force.y;
+	values[2] = (float)force.z;
+	values[3] = (float)torque.x;
+	values[4] = (float)torque.y;
+	values[5] = (float)torque.z;
+	values[6] = joint->get_pin_error();
+	values[7] = joint->get_muscle_error();
+
+	return pin;
+}
+
 void JoltJoints3D::_bind_methods() {
 	const StringName c = get_class_static();
 
@@ -397,6 +561,15 @@ void JoltJoints3D::_bind_methods() {
 	ClassDB::bind_static_method(c, D_METHOD("set_path_friction", "joint", "force"), &JoltJoints3D::set_path_friction);
 	ClassDB::bind_static_method(c, D_METHOD("set_path_motor", "joint", "mode", "target"), &JoltJoints3D::set_path_motor);
 	ClassDB::bind_static_method(c, D_METHOD("set_path_motor_spring", "joint", "frequency", "damping", "max_force"), &JoltJoints3D::set_path_motor_spring);
+
+	ClassDB::bind_static_method(c, D_METHOD("set_muscles", "joints", "settings"), &JoltJoints3D::set_muscles);
+	ClassDB::bind_static_method(c, D_METHOD("drive_muscles", "joints", "targets"), &JoltJoints3D::drive_muscles);
+	ClassDB::bind_static_method(c, D_METHOD("get_muscles", "joints"), &JoltJoints3D::get_muscles);
+
+	ClassDB::bind_static_method(c, D_METHOD("make_pin", "joint", "body", "frame"), &JoltJoints3D::make_pin);
+	ClassDB::bind_static_method(c, D_METHOD("set_pin", "joint", "stiffness", "damping", "force", "turn_stiffness", "turn_damping", "torque"), &JoltJoints3D::set_pin);
+	ClassDB::bind_static_method(c, D_METHOD("drive_pin", "joint", "position", "orientation", "velocity", "spin"), &JoltJoints3D::drive_pin);
+	ClassDB::bind_static_method(c, D_METHOD("get_pin", "joint"), &JoltJoints3D::get_pin);
 
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_NONE", JOLT_JOINT_TYPE_NONE);
 	ClassDB::bind_integer_constant(c, StringName(), "TYPE_FIXED", JOLT_JOINT_TYPE_FIXED);

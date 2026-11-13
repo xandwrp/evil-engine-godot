@@ -33,8 +33,10 @@
 #include "core/object/class_db.h"
 #include "core/object/object.h"
 #include "core/templates/rid.h"
+#include "core/variant/typed_array.h"
 
 class JoltDistanceJoint3D;
+class JoltGeneric6DOFJoint3D;
 class JoltJoint3D;
 class JoltPathJoint3D;
 class JoltPulleyJoint3D;
@@ -46,6 +48,7 @@ class JoltJoints3D : public Object {
 	static JoltDistanceJoint3D *_get_distance(const RID &p_joint);
 	static JoltPulleyJoint3D *_get_pulley(const RID &p_joint);
 	static JoltPathJoint3D *_get_path(const RID &p_joint);
+	static JoltGeneric6DOFJoint3D *_get_6dof(const RID &p_joint);
 
 protected:
 	static void _bind_methods();
@@ -99,4 +102,13 @@ public:
 	static void set_path_friction(const RID &p_joint, float p_force);
 	static void set_path_motor(const RID &p_joint, int p_mode, float p_target);
 	static void set_path_motor_spring(const RID &p_joint, float p_frequency, float p_damping, float p_max_force);
+
+	static void set_muscles(const TypedArray<RID> &p_joints, const PackedFloat32Array &p_settings);
+	static void drive_muscles(const TypedArray<RID> &p_joints, const PackedFloat32Array &p_targets);
+	static PackedFloat32Array get_muscles(const TypedArray<RID> &p_joints);
+
+	static void make_pin(const RID &p_joint, const RID &p_body, const Transform3D &p_frame);
+	static void set_pin(const RID &p_joint, float p_stiffness, float p_damping, float p_force, float p_turn_stiffness, float p_turn_damping, float p_torque);
+	static void drive_pin(const RID &p_joint, const Vector3 &p_position, const Quaternion &p_orientation, const Vector3 &p_velocity, const Vector3 &p_spin);
+	static PackedFloat32Array get_pin(const RID &p_joint);
 };

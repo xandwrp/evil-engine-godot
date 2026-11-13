@@ -85,6 +85,21 @@ class JoltGeneric6DOFJoint3D final : public JoltJoint3D {
 	bool spring_enabled[AXIS_COUNT] = {};
 	bool spring_use_frequency[AXIS_COUNT] = {};
 
+	float muscle_stiffness = 0.0f;
+	float muscle_damping = 0.0f;
+	float muscle_torque = 0.0f;
+	JPH::Quat muscle_orientation = JPH::Quat::sIdentity();
+	JPH::Vec3 muscle_spin = JPH::Vec3::sZero();
+
+	float pin_stiffness = 0.0f;
+	float pin_damping = 0.0f;
+	float pin_force = 0.0f;
+	JPH::Vec3 pin_position = JPH::Vec3::sZero();
+	JPH::Vec3 pin_velocity = JPH::Vec3::sZero();
+
+	bool _is_driven(int p_axis) const { return p_axis >= AXIS_ANGULAR_X ? muscle_torque > 0.0f : pin_force > 0.0f; }
+	float _friction(int p_axis) const;
+
 	JPH::Constraint *_build_6dof(JPH::Body *p_jolt_body_a, JPH::Body *p_jolt_body_b, const Transform3D &p_shifted_ref_a, const Transform3D &p_shifted_ref_b) const;
 
 	void _update_limit_spring_parameters(int p_axis);
@@ -94,6 +109,8 @@ class JoltGeneric6DOFJoint3D final : public JoltJoint3D {
 	void _update_spring_parameters(int p_axis);
 	void _update_spring_equilibrium(int p_axis);
 	void _update_angular_target_rotation();
+	void _update_muscle();
+	void _restore_axes(int p_from, int p_to);
 
 	void _limits_changed();
 	void _limit_spring_parameters_changed(int p_axis);
@@ -124,6 +141,21 @@ public:
 
 	bool get_jolt_flag(Axis p_axis, JoltFlag p_flag) const;
 	void set_jolt_flag(Axis p_axis, JoltFlag p_flag, bool p_enabled);
+
+	void set_muscle(float p_stiffness, float p_damping, float p_torque);
+	void drive_muscle(const JPH::Quat &p_orientation, const JPH::Vec3 &p_spin);
+	bool has_muscle() const { return muscle_torque > 0.0f; }
+	Vector3 get_muscle_torque() const;
+	float get_muscle_error() const;
+
+	void set_pin(float p_stiffness, float p_damping, float p_force);
+	void drive_pin(const JPH::Vec3 &p_position, const JPH::Vec3 &p_velocity);
+	bool has_pin() const { return pin_force > 0.0f; }
+	Vector3 get_pin_force() const;
+	float get_pin_error() const;
+
+	bool is_held_by_world() const { return body_a == nullptr && body_b != nullptr; }
+	bool get_world_frames(Transform3D &r_frame_a, Transform3D &r_frame_b) const;
 
 	virtual float get_applied_force() const override;
 	virtual float get_applied_torque() const override;

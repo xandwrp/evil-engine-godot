@@ -110,6 +110,11 @@ void JoltGeneric6DOFJoint3D::_update_limit_spring_parameters(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_motor_state(int p_axis) {
+	if (_is_driven(p_axis)) {
+		_update_muscle();
+		return;
+	}
+
 	if (JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr())) {
 		if (motor_enabled[p_axis] && spring_enabled[p_axis]) {
 			constraint->SetMotorState((JoltAxis)p_axis, JPH::EMotorState::PositionAndVelocity);
@@ -124,6 +129,10 @@ void JoltGeneric6DOFJoint3D::_update_motor_state(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_motor_velocity(int p_axis) {
+	if (_is_driven(p_axis)) {
+		return;
+	}
+
 	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
 	if (unlikely(constraint == nullptr)) {
 		return;
@@ -144,6 +153,11 @@ void JoltGeneric6DOFJoint3D::_update_motor_velocity(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_motor_limit(int p_axis) {
+	if (_is_driven(p_axis)) {
+		_update_muscle();
+		return;
+	}
+
 	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
 	if (unlikely(constraint == nullptr)) {
 		return;
@@ -168,6 +182,10 @@ void JoltGeneric6DOFJoint3D::_update_motor_limit(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_spring_parameters(int p_axis) {
+	if (_is_driven(p_axis)) {
+		return;
+	}
+
 	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
 	if (unlikely(constraint == nullptr)) {
 		return;
@@ -187,6 +205,10 @@ void JoltGeneric6DOFJoint3D::_update_spring_parameters(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_spring_equilibrium(int p_axis) {
+	if (_is_driven(p_axis)) {
+		return;
+	}
+
 	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
 	if (unlikely(constraint == nullptr)) {
 		return;
@@ -212,7 +234,7 @@ void JoltGeneric6DOFJoint3D::_update_spring_equilibrium(int p_axis) {
 }
 
 void JoltGeneric6DOFJoint3D::_update_angular_target_rotation() {
-	if (!has_angular_target_rotation) {
+	if (!has_angular_target_rotation || muscle_torque > 0.0f) {
 		return;
 	}
 
@@ -734,4 +756,190 @@ void JoltGeneric6DOFJoint3D::rebuild() {
 	}
 
 	_update_angular_target_rotation();
+	_update_muscle();
+}
+
+float JoltGeneric6DOFJoint3D::_friction(int p_axis) const {
+	if (!motor_enabled[p_axis]) {
+		return 0.0f;
+	}
+
+	return (float)(drive_limit_set[p_axis] ? drive_limit[p_axis] : motor_limit[p_axis]);
+}
+
+void JoltGeneric6DOFJoint3D::_update_muscle() {
+	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
+	if (unlikely(constraint == nullptr)) {
+		return;
+	}
+
+	if (pin_force > 0.0f) {
+		for (int axis = AXIS_LINEAR_X; axis <= AXIS_LINEAR_Z; ++axis) {
+			JPH::MotorSettings &settings = constraint->GetMotorSettings((JoltAxis)axis);
+			settings.mSpringSettings.mMode = JPH::ESpringMode::StiffnessAndDamping;
+			settings.mSpringSettings.mStiffness = pin_stiffness;
+			settings.mSpringSettings.mDamping = pin_damping;
+			settings.SetForceLimit(MAX(pin_force, _friction(axis)));
+			constraint->SetMotorState((JoltAxis)axis, JPH::EMotorState::PositionAndVelocity);
+		}
+
+		constraint->SetTargetPositionCS(pin_position);
+		constraint->SetTargetVelocityCS(pin_velocity);
+	}
+
+	if (muscle_torque > 0.0f) {
+		for (int axis = AXIS_ANGULAR_X; axis <= AXIS_ANGULAR_Z; ++axis) {
+			JPH::MotorSettings &settings = constraint->GetMotorSettings((JoltAxis)axis);
+			settings.mSpringSettings.mMode = JPH::ESpringMode::StiffnessAndDamping;
+			settings.mSpringSettings.mStiffness = muscle_stiffness;
+			settings.mSpringSettings.mDamping = muscle_damping;
+			settings.SetTorqueLimit(MAX(muscle_torque, _friction(axis)));
+			constraint->SetMotorState((JoltAxis)axis, JPH::EMotorState::PositionAndVelocity);
+		}
+
+		constraint->SetTargetOrientationCS(muscle_orientation);
+		constraint->SetTargetAngularVelocityCS(muscle_spin);
+	}
+}
+
+void JoltGeneric6DOFJoint3D::_restore_axes(int p_from, int p_to) {
+	for (int axis = p_from; axis <= p_to; ++axis) {
+		_update_motor_state(axis);
+		_update_motor_velocity(axis);
+		_update_motor_limit(axis);
+		_update_spring_parameters(axis);
+		_update_spring_equilibrium(axis);
+	}
+
+	if (p_from == AXIS_ANGULAR_X) {
+		_update_angular_target_rotation();
+	}
+}
+
+void JoltGeneric6DOFJoint3D::set_muscle(float p_stiffness, float p_damping, float p_torque) {
+	const bool was_driven = muscle_torque > 0.0f;
+
+	muscle_stiffness = p_stiffness;
+	muscle_damping = p_damping;
+	muscle_torque = p_torque;
+
+	if (muscle_torque > 0.0f) {
+		_update_muscle();
+	} else if (was_driven) {
+		muscle_orientation = JPH::Quat::sIdentity();
+		muscle_spin = JPH::Vec3::sZero();
+		_restore_axes(AXIS_ANGULAR_X, AXIS_ANGULAR_Z);
+	}
+
+	_wake_up_bodies();
+}
+
+void JoltGeneric6DOFJoint3D::drive_muscle(const JPH::Quat &p_orientation, const JPH::Vec3 &p_spin) {
+	muscle_orientation = p_orientation;
+	muscle_spin = p_spin;
+
+	if (muscle_torque > 0.0f) {
+		if (JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr())) {
+			constraint->SetTargetOrientationCS(muscle_orientation);
+			constraint->SetTargetAngularVelocityCS(muscle_spin);
+		}
+
+		_wake_up_bodies();
+	}
+}
+
+Vector3 JoltGeneric6DOFJoint3D::get_muscle_torque() const {
+	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
+	ERR_FAIL_NULL_V(constraint, Vector3());
+
+	JoltSpace3D *space = get_space();
+	ERR_FAIL_NULL_V(space, Vector3());
+
+	const float last_step = space->get_last_step();
+	if (unlikely(last_step == 0.0f)) {
+		return Vector3();
+	}
+
+	return to_godot(constraint->GetTotalLambdaMotorRotation() / last_step);
+}
+
+float JoltGeneric6DOFJoint3D::get_muscle_error() const {
+	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
+	ERR_FAIL_NULL_V(constraint, 0.0f);
+
+	const JPH::Quat diff = constraint->GetRotationInConstraintSpace().Conjugated() * muscle_orientation;
+
+	return 2.0f * JPH::ACos(MIN(1.0f, JPH::abs(diff.GetW())));
+}
+
+void JoltGeneric6DOFJoint3D::set_pin(float p_stiffness, float p_damping, float p_force) {
+	const bool was_driven = pin_force > 0.0f;
+
+	pin_stiffness = p_stiffness;
+	pin_damping = p_damping;
+	pin_force = p_force;
+
+	if (pin_force > 0.0f) {
+		_update_muscle();
+	} else if (was_driven) {
+		pin_position = JPH::Vec3::sZero();
+		pin_velocity = JPH::Vec3::sZero();
+		_restore_axes(AXIS_LINEAR_X, AXIS_LINEAR_Z);
+	}
+
+	_wake_up_bodies();
+}
+
+void JoltGeneric6DOFJoint3D::drive_pin(const JPH::Vec3 &p_position, const JPH::Vec3 &p_velocity) {
+	pin_position = p_position;
+	pin_velocity = p_velocity;
+
+	if (pin_force > 0.0f) {
+		if (JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr())) {
+			constraint->SetTargetPositionCS(pin_position);
+			constraint->SetTargetVelocityCS(pin_velocity);
+		}
+
+		_wake_up_bodies();
+	}
+}
+
+Vector3 JoltGeneric6DOFJoint3D::get_pin_force() const {
+	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
+	ERR_FAIL_NULL_V(constraint, Vector3());
+
+	JoltSpace3D *space = get_space();
+	ERR_FAIL_NULL_V(space, Vector3());
+
+	const float last_step = space->get_last_step();
+	if (unlikely(last_step == 0.0f)) {
+		return Vector3();
+	}
+
+	return to_godot(constraint->GetTotalLambdaMotorTranslation() / last_step);
+}
+
+float JoltGeneric6DOFJoint3D::get_pin_error() const {
+	Transform3D frame_a;
+	Transform3D frame_b;
+	ERR_FAIL_COND_V(!get_world_frames(frame_a, frame_b), 0.0f);
+
+	const Vector3 offset = frame_a.basis.xform_inv(frame_b.origin - frame_a.origin);
+
+	return (float)(offset - to_godot(pin_position)).length();
+}
+
+bool JoltGeneric6DOFJoint3D::get_world_frames(Transform3D &r_frame_a, Transform3D &r_frame_b) const {
+	JPH::SixDOFConstraint *constraint = static_cast<JPH::SixDOFConstraint *>(jolt_ref.GetPtr());
+	if (constraint == nullptr) {
+		return false;
+	}
+
+	const JPH::RMat44 frame_a = constraint->GetBody1()->GetCenterOfMassTransform() * constraint->GetConstraintToBody1Matrix();
+	const JPH::RMat44 frame_b = constraint->GetBody2()->GetCenterOfMassTransform() * constraint->GetConstraintToBody2Matrix();
+
+	r_frame_a = Transform3D(to_godot(frame_a.GetQuaternion()), to_godot(frame_a.GetTranslation()));
+	r_frame_b = Transform3D(to_godot(frame_b.GetQuaternion()), to_godot(frame_b.GetTranslation()));
+
+	return true;
 }

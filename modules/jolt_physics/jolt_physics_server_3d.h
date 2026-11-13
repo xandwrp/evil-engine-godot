@@ -464,6 +464,7 @@ public:
 #endif
 
 	void joint_make_fixed(RID p_joint, RID p_body_a, const Transform3D &p_local_ref_a, RID p_body_b, const Transform3D &p_local_ref_b);
+	void joint_make_world_pin(RID p_joint, RID p_body, const Transform3D &p_local_ref, const Transform3D &p_world_ref);
 	void joint_make_distance(RID p_joint, RID p_body_a, const Vector3 &p_local_a, RID p_body_b, const Vector3 &p_local_b);
 	void joint_make_path(RID p_joint, RID p_holder, const Transform3D &p_path_frame, const PackedVector3Array &p_points, const PackedVector3Array &p_tangents, const PackedVector3Array &p_normals, bool p_looping, RID p_follower, const Vector3 &p_follower_point, int p_rotation);
 	void joint_make_pulley(RID p_joint, RID p_body_a, const Vector3 &p_local_a, const Vector3 &p_fixed_a, RID p_body_b, const Vector3 &p_local_b, const Vector3 &p_fixed_b, float p_ratio);
