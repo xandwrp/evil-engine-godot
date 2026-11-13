@@ -411,10 +411,9 @@ void SoftBodyMotionProperties::ApplyDihedralBendConstraints(const SoftBodyUpdate
 			continue;
 
 		// Calculate constraint equation
-		// As per "Strain Based Dynamics" Appendix A we need to negate the gradients when (n1 x n2) . e > 0, instead we make sure that the sign of the constraint equation is correct
-		float sign = Sign(n2.Cross(n1).Dot(e));
-		float d = n1.Dot(n2) / Sqrt(n1_len_sq_n2_len_sq);
-		float c = sign * ACosApproximate(d) - b->mInitialAngle;
+		// As per "Strain Based Dynamics" Appendix A we need to negate the gradients when (n1 x n2) . e > 0, instead we make sure that the sign of the constraint equation is correct.
+		// The signed angle comes from atan2 rather than the sign times acos of the normals' dot product, which loses all precision as the triangles near flat.
+		float c = ATan2(n2.Cross(n1).Dot(e) / e_len, n1.Dot(n2)) - b->mInitialAngle;
 
 		// Ensure the range is -PI to PI
 		if (c > JPH_PI)

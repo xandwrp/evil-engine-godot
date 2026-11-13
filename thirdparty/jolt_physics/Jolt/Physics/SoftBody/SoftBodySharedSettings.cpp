@@ -523,13 +523,11 @@ void SoftBodySharedSettings::CalculateBendConstraintConstants()
 		Vec3 n1 = e0.Cross(e1);
 		Vec3 n2 = e2.Cross(e0);
 		float denom = Sqrt(n1.LengthSq() * n2.LengthSq());
-		if (denom < 1.0e-12f)
+		float e0_len = e0.Length();
+		if (denom < 1.0e-12f || e0_len < 1.0e-12f)
 			b.mInitialAngle = 0.0f;
 		else
-		{
-			float sign = Sign(n2.Cross(n1).Dot(e0));
-			b.mInitialAngle = sign * ACosApproximate(n1.Dot(n2) / denom); // Runtime uses the approximation too
-		}
+			b.mInitialAngle = ATan2(n2.Cross(n1).Dot(e0) / e0_len, n1.Dot(n2)); // Runtime uses atan2 too
 	}
 }
 

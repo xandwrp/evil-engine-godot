@@ -1,8 +1,22 @@
 diff --git a/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodyMotionProperties.cpp b/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodyMotionProperties.cpp
-index e38d5de7ed..b477ec5af5 100644
+index e38d5de7ed..703736b130 100644
 --- a/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodyMotionProperties.cpp
 +++ b/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodyMotionProperties.cpp
-@@ -946,7 +946,7 @@ void SoftBodyMotionProperties::InitializeUpdateContext(float inDeltaTime, Body &
+@@ -411,10 +411,9 @@ void SoftBodyMotionProperties::ApplyDihedralBendConstraints(const SoftBodyUpdate
+ 			continue;
+ 
+ 		// Calculate constraint equation
+-		// As per "Strain Based Dynamics" Appendix A we need to negate the gradients when (n1 x n2) . e > 0, instead we make sure that the sign of the constraint equation is correct
+-		float sign = Sign(n2.Cross(n1).Dot(e));
+-		float d = n1.Dot(n2) / Sqrt(n1_len_sq_n2_len_sq);
+-		float c = sign * ACosApproximate(d) - b->mInitialAngle;
++		// As per "Strain Based Dynamics" Appendix A we need to negate the gradients when (n1 x n2) . e > 0, instead we make sure that the sign of the constraint equation is correct.
++		// The signed angle comes from atan2 rather than the sign times acos of the normals' dot product, which loses all precision as the triangles near flat.
++		float c = ATan2(n2.Cross(n1).Dot(e) / e_len, n1.Dot(n2)) - b->mInitialAngle;
+ 
+ 		// Ensure the range is -PI to PI
+ 		if (c > JPH_PI)
+@@ -946,7 +945,7 @@ void SoftBodyMotionProperties::InitializeUpdateContext(float inDeltaTime, Body &
  
  	// Convert gravity to local space
  	ioContext.mCenterOfMassTransform = inSoftBody.GetCenterOfMassTransform();
@@ -37,3 +51,24 @@ index 918ce36629..cea363b827 100644
  	float								mSkinnedMaxDistanceMultiplier = 1.0f;		///< Multiplier applied to Skinned::mMaxDistance to allow tightening or loosening of the skin constraints
  	float								mVertexRadius = 0.0f;						///< How big the particles are, can be used to push the vertices a little bit away from the surface of other bodies to prevent z-fighting
  	bool								mUpdatePosition;							///< Update the position of the body while simulating (set to false for something that is attached to the static world)
+diff --git a/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodySharedSettings.cpp b/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodySharedSettings.cpp
+index 514142f5cf..4682377d3c 100644
+--- a/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodySharedSettings.cpp
++++ b/thirdparty/jolt_physics/Jolt/Physics/SoftBody/SoftBodySharedSettings.cpp
+@@ -523,13 +523,11 @@ void SoftBodySharedSettings::CalculateBendConstraintConstants()
+ 		Vec3 n1 = e0.Cross(e1);
+ 		Vec3 n2 = e2.Cross(e0);
+ 		float denom = Sqrt(n1.LengthSq() * n2.LengthSq());
+-		if (denom < 1.0e-12f)
++		float e0_len = e0.Length();
++		if (denom < 1.0e-12f || e0_len < 1.0e-12f)
+ 			b.mInitialAngle = 0.0f;
+ 		else
+-		{
+-			float sign = Sign(n2.Cross(n1).Dot(e0));
+-			b.mInitialAngle = sign * ACosApproximate(n1.Dot(n2) / denom); // Runtime uses the approximation too
+-		}
++			b.mInitialAngle = ATan2(n2.Cross(n1).Dot(e0) / e0_len, n1.Dot(n2)); // Runtime uses atan2 too
+ 	}
+ }
+ 
