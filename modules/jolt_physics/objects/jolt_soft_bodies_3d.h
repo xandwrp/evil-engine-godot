@@ -33,6 +33,7 @@
 #include "core/object/class_db.h"
 #include "core/object/object.h"
 #include "core/templates/rid.h"
+#include "core/variant/typed_array.h"
 
 class JoltSoftBody3D;
 
@@ -56,6 +57,9 @@ public:
 	static PackedVector3Array get_velocities(const RID &p_soft_body);
 	static float get_volume(const RID &p_soft_body);
 	static float get_rest_volume(const RID &p_soft_body);
+
+	static void skin(const RID &p_soft_body, const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard);
+	static void update(const RID &p_soft_body, float p_delta);
 
 	static PackedByteArray save_state(const RID &p_soft_body);
 	static bool restore_state(const RID &p_soft_body, const PackedByteArray &p_state);

@@ -85,6 +85,7 @@ void read_cloth_settings(const Dictionary &p_settings, JoltSoftBody3D::ClothSett
 	r_settings.skin_constraints = p_settings.get("skin_constraints", r_settings.skin_constraints);
 	r_settings.update_position = p_settings.get("update_position", r_settings.update_position);
 	r_settings.double_sided = p_settings.get("double_sided", r_settings.double_sided);
+	r_settings.manual = p_settings.get("manual", r_settings.manual);
 }
 
 } // namespace
@@ -152,7 +153,7 @@ void JoltSoftBody3D::_add_to_space() {
 	jolt_settings->mCollisionGroup = JPH::CollisionGroup(nullptr, group_id, sub_group_id);
 	jolt_settings->mMaxLinearVelocity = JoltProjectSettings::max_linear_velocity;
 
-	JPH::Body *new_jolt_body = space->add_object(*this, *jolt_settings);
+	JPH::Body *new_jolt_body = space->add_object(*this, *jolt_settings, cloth != nullptr && cloth->settings.manual);
 	if (new_jolt_body == nullptr) {
 		return;
 	}
@@ -266,6 +267,11 @@ Vector3 JoltSoftBody3D::_compute_gravity() const {
 	}
 
 	return gravity;
+}
+
+void JoltSoftBody3D::_cloth_pre_step() {
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	motion_properties.SetGravityOverride(to_jolt(_compute_gravity()));
 }
 
 void JoltSoftBody3D::_apply_environmental_forces(float p_step) {
@@ -725,6 +731,10 @@ void JoltSoftBody3D::_update_cloth_settings() {
 	motion_properties.SetSkinnedMaxDistanceMultiplier(cs.skin_multiplier);
 	jolt_body->SetFriction(cs.friction);
 	jolt_body->SetRestitution(cs.bounce);
+
+	if (cs.manual) {
+		set_is_sleeping(true);
+	}
 }
 
 void JoltSoftBody3D::_update_cloth_mass() {
@@ -979,6 +989,7 @@ Dictionary JoltSoftBody3D::get_cloth_settings() const {
 	settings["skin_constraints"] = cs.skin_constraints;
 	settings["update_position"] = cs.update_position;
 	settings["double_sided"] = cs.double_sided;
+	settings["manual"] = cs.manual;
 	return settings;
 }
 
@@ -1023,6 +1034,56 @@ float JoltSoftBody3D::get_volume() const {
 
 float JoltSoftBody3D::get_rest_volume() const {
 	return cloth != nullptr ? cloth->rest_volume : 0.0f;
+}
+
+void JoltSoftBody3D::skin(const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard) {
+	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to skin '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+	ERR_FAIL_COND_MSG(cloth == nullptr || cloth->binds.is_empty(), vformat("Soft body '%s' wasn't built with skin weights, so it can't be skinned.", to_string()));
+	ERR_FAIL_COND_MSG(p_joints.size() < (int)cloth->binds.size(), vformat("Soft body '%s' takes %d joints and was given %d.", to_string(), cloth->binds.size(), p_joints.size()));
+
+	const JPH::RMat44 com = jolt_body->GetCenterOfMassTransform();
+	const Transform3D to_body = Transform3D(to_godot(jolt_body->GetRotation()), to_godot(jolt_body->GetCenterOfMassPosition())).affine_inverse() * p_frame;
+
+	const int joint_count = p_joints.size();
+	LocalVector<JPH::Mat44> matrices;
+	matrices.resize(joint_count);
+
+	bool moved = p_hard || (int)cloth->last_skin.size() != joint_count;
+	cloth->last_skin.resize(joint_count);
+	for (int j = 0; j < joint_count; ++j) {
+		const Transform3D joint = p_frame * (Transform3D)p_joints[j];
+		if (!moved && !joint.is_equal_approx(cloth->last_skin[j])) {
+			moved = true;
+		}
+		cloth->last_skin[j] = joint;
+		matrices[j] = to_jolt(to_body * (Transform3D)p_joints[j]);
+	}
+
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	motion_properties.SkinVertices(com, matrices.ptr(), (JPH::uint)joint_count, p_hard, space->get_temp_allocator());
+
+	if (moved) {
+		wake_up();
+	}
+}
+
+void JoltSoftBody3D::update(float p_delta) {
+	ERR_FAIL_COND_MSG(!in_space(), vformat("Failed to update '%s'. Doing so without a physics space is not supported when using Jolt Physics.", to_string()));
+	ERR_FAIL_NULL_MSG(cloth, vformat("Soft body '%s' wasn't built from data, so it can't be updated on its own.", to_string()));
+
+	const float delta = MIN(p_delta, 1.0f / 30.0f);
+	if (delta <= 0.0f) {
+		return;
+	}
+
+	JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
+	const int iterations = cloth->settings.iterations;
+	motion_properties.SetNumIterations((JPH::uint32)CLAMP((int)Math::ceil(delta * 60.0f * iterations - 0.001f), 1, iterations * 2));
+
+	_cloth_pre_step();
+	motion_properties.CustomUpdate(delta, *jolt_body, space->get_physics_system());
+
+	motion_properties.SetNumIterations((JPH::uint32)iterations);
 }
 
 PackedByteArray JoltSoftBody3D::save_state() const {
@@ -1119,8 +1180,7 @@ Vector3 JoltSoftBody3D::get_velocity_at_position(const Vector3 &p_position) cons
 
 void JoltSoftBody3D::pre_step(float p_step) {
 	if (cloth != nullptr) {
-		JPH::SoftBodyMotionProperties &motion_properties = static_cast<JPH::SoftBodyMotionProperties &>(*jolt_body->GetMotionPropertiesUnchecked());
-		motion_properties.SetGravityOverride(to_jolt(_compute_gravity()));
+		_cloth_pre_step();
 		return;
 	}
 
@@ -1206,6 +1266,10 @@ void JoltSoftBody3D::apply_central_force(const Vector3 &p_force) {
 void JoltSoftBody3D::set_is_sleeping(bool p_enabled) {
 	if (!in_space()) {
 		return;
+	}
+
+	if (cloth != nullptr && cloth->settings.manual) {
+		p_enabled = true;
 	}
 
 	space->set_is_object_sleeping(jolt_body->GetID(), p_enabled);

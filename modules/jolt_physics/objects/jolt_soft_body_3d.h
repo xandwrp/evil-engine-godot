@@ -32,6 +32,7 @@
 
 #include "jolt_object_3d.h"
 
+#include "core/variant/typed_array.h"
 #include "servers/physics_3d/physics_server_3d_enums.h"
 
 #include <Jolt/Jolt.h>
@@ -60,6 +61,7 @@ public:
 		bool skin_constraints = true;
 		bool update_position = true;
 		bool double_sided = true;
+		bool manual = false;
 	};
 
 private:
@@ -83,6 +85,7 @@ private:
 		LocalVector<float> tether_lengths;
 
 		ClothSettings settings;
+		LocalVector<Transform3D> last_skin;
 	};
 
 	Cloth *cloth = nullptr;
@@ -122,6 +125,7 @@ private:
 	JPH::SoftBodySharedSettings *_create_cloth_settings();
 
 	Vector3 _compute_gravity() const;
+	void _cloth_pre_step();
 	void _update_cloth_mass();
 	void _update_cloth_compliance();
 	void _update_cloth_settings();
@@ -166,6 +170,9 @@ public:
 	PackedVector3Array get_velocities() const;
 	float get_volume() const;
 	float get_rest_volume() const;
+
+	void skin(const Transform3D &p_frame, const TypedArray<Transform3D> &p_joints, bool p_hard);
+	void update(float p_delta);
 
 	PackedByteArray save_state() const;
 	bool restore_state(const PackedByteArray &p_state);
