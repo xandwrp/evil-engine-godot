@@ -50,6 +50,15 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
 
+namespace {
+
+class IgnoreSoftBodies final : public JPH::BodyFilter {
+public:
+	virtual bool ShouldCollideLocked(const JPH::Body &p_body) const override { return !p_body.IsSoftBody(); }
+};
+
+} // namespace
+
 JoltSpace3D *JoltCharacter3D::_get_space() const {
 	JoltPhysicsServer3D *server = JoltPhysicsServer3D::get_singleton();
 	ERR_FAIL_NULL_V_MSG(server, nullptr, "A Jolt character needs the Jolt physics server.");
@@ -205,7 +214,7 @@ bool JoltCharacter3D::_step_up(JoltSpace3D &p_space, const JPH::Vec3 &p_forward,
 	const JPH::PhysicsSystem &system = p_space.get_physics_system();
 	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
 	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
-	const JPH::BodyFilter body_filter;
+	const IgnoreSoftBodies body_filter;
 	const JPH::ShapeFilter shape_filter;
 
 	JPH::StateRecorderImpl saved;
@@ -261,7 +270,7 @@ bool JoltCharacter3D::_face_ahead(const JoltSpace3D &p_space, const JPH::Vec3 &p
 	const JPH::RMat44 transform = character->GetCenterOfMassTransform();
 	const JPH::RVec3 base = transform.GetTranslation();
 	JPH::AllHitCollisionCollector<JPH::CastShapeCollector> hits;
-	system.GetNarrowPhaseQuery().CastShape(JPH::RShapeCast(character->GetShape(), JPH::Vec3::sOne(), transform, p_displacement), settings, base, hits, broad_phase_filter, object_layer_filter);
+	system.GetNarrowPhaseQuery().CastShape(JPH::RShapeCast(character->GetShape(), JPH::Vec3::sOne(), transform, p_displacement), settings, base, hits, broad_phase_filter, object_layer_filter, IgnoreSoftBodies());
 	hits.Sort();
 
 	for (const JPH::ShapeCastResult &hit : hits.mHits) {
@@ -307,7 +316,7 @@ void JoltCharacter3D::_walk_onto(JoltSpace3D &p_space, const JPH::Vec3 &p_normal
 	const JPH::Vec3 velocity = character->GetLinearVelocity();
 	const JPH::Vec3 flat = p_left / p_time;
 	character->SetLinearVelocity(JPH::Vec3(flat.GetX(), -(p_normal.GetX() * flat.GetX() + p_normal.GetZ() * flat.GetZ()) / p_normal.GetY(), flat.GetZ()));
-	character->ExtendedUpdate(p_time, p_gravity, p_settings, broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), p_space.get_temp_allocator());
+	character->ExtendedUpdate(p_time, p_gravity, p_settings, broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), p_space.get_temp_allocator());
 	character->SetLinearVelocity(velocity);
 }
 
@@ -375,7 +384,7 @@ bool JoltCharacter3D::set_box(const Vector3 &p_size, const Vector3 &p_center, fl
 	const JPH::PhysicsSystem &system = space->get_physics_system();
 	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
 	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
-	return character->SetShape(shape, p_max_penetration, broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
+	return character->SetShape(shape, p_max_penetration, broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), space->get_temp_allocator());
 }
 
 Vector3 JoltCharacter3D::get_position() const {
@@ -420,7 +429,7 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 	Vector3 velocity = to_godot(character->GetLinearVelocity());
 	const bool supported = character->IsSupported();
 	const JPH::RVec3 start = character->GetPosition();
-	character->ExtendedUpdate(p_delta, to_jolt(p_gravity), settings, broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
+	character->ExtendedUpdate(p_delta, to_jolt(p_gravity), settings, broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), space->get_temp_allocator());
 
 	const JPH::Vec3 desired = JPH::Vec3((float)velocity.x, 0, (float)velocity.z) * p_delta;
 	const float desired_length = desired.Length();
@@ -444,7 +453,7 @@ void JoltCharacter3D::move(float p_delta, const Vector3 &p_gravity, float p_step
 		}
 	}
 	if (p_stick_down > 0 && supported && character->GetGroundState() != JPH::CharacterBase::EGroundState::OnGround) {
-		character->StickToFloor(JPH::Vec3(0, -p_stick_down, 0), broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
+		character->StickToFloor(JPH::Vec3(0, -p_stick_down, 0), broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), space->get_temp_allocator());
 	}
 
 	for (int pass = 0; pass < 2; pass++) {
@@ -471,7 +480,7 @@ void JoltCharacter3D::refresh_contacts() {
 	const JPH::PhysicsSystem &system = space->get_physics_system();
 	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
 	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
-	character->RefreshContacts(broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
+	character->RefreshContacts(broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), space->get_temp_allocator());
 }
 
 bool JoltCharacter3D::can_walk_stairs(const Vector3 &p_velocity) const {
@@ -487,7 +496,7 @@ bool JoltCharacter3D::walk_stairs(float p_delta, float p_step_up, const Vector3 
 	const JPH::PhysicsSystem &system = space->get_physics_system();
 	const JPH::DefaultBroadPhaseLayerFilter broad_phase_filter = system.GetDefaultBroadPhaseLayerFilter(object_layer);
 	const JPH::DefaultObjectLayerFilter object_layer_filter = system.GetDefaultLayerFilter(object_layer);
-	return character->WalkStairs(p_delta, JPH::Vec3(0, MAX(p_step_up, 0.0f), 0), to_jolt(p_step_forward), to_jolt(p_step_forward_test), JPH::Vec3(0, -MAX(p_step_down_extra, 0.0f), 0), broad_phase_filter, object_layer_filter, JPH::BodyFilter(), JPH::ShapeFilter(), space->get_temp_allocator());
+	return character->WalkStairs(p_delta, JPH::Vec3(0, MAX(p_step_up, 0.0f), 0), to_jolt(p_step_forward), to_jolt(p_step_forward_test), JPH::Vec3(0, -MAX(p_step_down_extra, 0.0f), 0), broad_phase_filter, object_layer_filter, IgnoreSoftBodies(), JPH::ShapeFilter(), space->get_temp_allocator());
 }
 
 JoltCharacter3D::GroundState JoltCharacter3D::get_ground_state() const {
